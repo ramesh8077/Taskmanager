@@ -1,0 +1,33 @@
+{
+  "name": "team-task-manager",
+  "version": "1.0.0",
+  "description": "A production-grade Team Task Manager API built with Express.js and Sequelize ORM.",
+  "main": "server.js",
+  "scripts": {
+    "start-backend": "nodemon server.js",
+    "start-frontend": "cd frontend && npm run dev",
+    "dev": "concurrently \"npm run start-backend\" \"npm run start-frontend\""
+  },
+  "keywords": [
+    "task-manager",
+    "express",
+    "sequelize",
+    "mysql"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "mysql2": "^3.22.3",
+    "sequelize": "^6.37.8"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "nodemon": "^3.1.14"
+  }
+}
