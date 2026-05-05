@@ -106,9 +106,19 @@ const getTickets = async (req, res) => {
       ],
     });
 
+    const absoluteTotal = await Ticket.count({
+      where: req.user.role === "Member" ? {
+        [Op.or]: [{ assignedTo: req.user.id }, { createdBy: req.user.id }]
+      } : {}
+    });
+
     return res.status(200).json({
       success: true,
-      data: { tickets },
+      data: { 
+        tickets,
+        totalFiltered: tickets.length,
+        totalAbsolute: absoluteTotal
+      },
     });
   } catch (error) {
     console.error("❌ Get Tickets Error:", error.message);

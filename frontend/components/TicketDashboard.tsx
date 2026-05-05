@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import toast from "react-hot-toast";
 import API from "@/lib/axios";
 import SkeletonLoader from "@/components/SkeletonLoader";
@@ -34,7 +34,7 @@ interface Ticket {
   department: string;
   rootCause?: string;
   createdAt: string;
-  creator?: { id: number; name: string; email: string };
+  creator?: { id: number; name: string; email: string; team?: string };
   assignee?: { id: number; name: string; email: string };
   comments?: Comment[];
   history?: HistoryEntry[];
@@ -63,14 +63,19 @@ export default function TicketDashboard() {
   const [statusFilter, setStatusFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState("");
   
+  // Selection
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  
   // Modals
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showResolveModal, setShowResolveModal] = useState<Ticket | null>(null);
   const [viewTicket, setViewTicket] = useState<Ticket | null>(null);
   const [detailTab, setDetailTab] = useState<"details" | "activity" | "comments">("details");
   
+  // Bulk Actions
+  const [showBulkAction, setShowBulkAction] = useState(false);
+  
   // Forms
-  // ... (keeping existing forms state)
   const [createForm, setCreateForm] = useState({
     title: "",
     description: "",
@@ -89,6 +94,8 @@ export default function TicketDashboard() {
   const [commentText, setCommentText] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  const [totalAbsolute, setTotalAbsolute] = useState(0);
+
   const fetchTickets = useCallback(async () => {
     try {
       setLoading(true);
@@ -99,6 +106,7 @@ export default function TicketDashboard() {
       
       const { data } = await API.get(`/tickets?${params.toString()}`);
       setTickets(data.data.tickets || []);
+      setTotalAbsolute(data.data.totalAbsolute || 0);
     } catch {
       toast.error("Failed to fetch tickets.");
     } finally {
@@ -187,17 +195,53 @@ export default function TicketDashboard() {
     }
   };
 
+  const handleBulkStatusChange = async (newStatus: string) => {
+    if (selectedIds.length === 0) return;
+    try {
+      setSubmitting(true);
+      // Assuming a bulk update endpoint exists or looping
+      await Promise.all(selectedIds.map(id => API.put(`/tickets/${id}/status`, { status: newStatus })));
+      toast.success(`Updated ${selectedIds.length} tickets to ${newStatus}`);
+      setSelectedIds([]);
+      fetchTickets();
+    } catch {
+      toast.error("Bulk update failed.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.length === tickets.length) {
+      setSelectedIds([]);
+    } else {
+      setSelectedIds(tickets.map(t => t.id));
+    }
+  };
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
   const inputCls = "w-full px-4 py-2 rounded-lg text-sm outline-none transition-all t-text-primary placeholder:t-text-muted";
   const inputStyle = {
     background: isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.02)",
     border: `1px solid ${isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)"}`,
   };
 
+  const stats = useMemo(() => {
+    const total = tickets.length;
+    const open = tickets.filter(t => t.status === "Open").length;
+    const inProgress = tickets.filter(t => t.status === "In-Progress").length;
+    const resolved = tickets.filter(t => t.status === "Resolved").length;
+    return { total, open, inProgress, resolved };
+  }, [tickets]);
+
   return (
     <div className="flex h-[calc(100vh-140px)] gap-6 overflow-hidden">
       {/* Sidebar Filters */}
       <aside className="w-64 flex-shrink-0 space-y-6 hidden lg:block overflow-y-auto pr-2">
-        <div>
+        <div className="p-5 rounded-2xl border t-border-subtle t-bg-card">
           <h3 className="text-xs font-bold uppercase tracking-widest t-text-muted mb-4">Filter By</h3>
           <div className="space-y-4">
             <div>
@@ -225,66 +269,136 @@ export default function TicketDashboard() {
             </div>
           </div>
         </div>
+
+        {/* Total Count Summary */}
+        <div className="p-5 rounded-2xl border t-border-subtle t-bg-card space-y-3">
+          <h3 className="text-xs font-bold uppercase tracking-widest t-text-muted mb-1">Summary</h3>
+          <div className="flex justify-between items-center">
+            <span className="text-xs t-text-secondary">Unfiltered Total</span>
+            <span className="text-sm font-bold t-text-primary">{totalAbsolute}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs t-text-secondary">Filtered Count</span>
+            <span className="text-sm font-bold t-text-primary">{stats.total}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs t-text-secondary">Open</span>
+            <span className="text-xs font-bold text-green-500">{stats.open}</span>
+          </div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs t-text-secondary">Resolved</span>
+            <span className="text-xs font-bold text-emerald-500">{stats.resolved}</span>
+          </div>
+        </div>
       </aside>
 
       {/* Main Table Area */}
-      <div className="flex-1 flex flex-col bg-white dark:bg-zinc-900 rounded-3xl border shadow-sm overflow-hidden" style={{ borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)" }}>
+      <div className="flex-1 flex flex-col t-bg-card rounded-3xl border t-border-subtle shadow-sm overflow-hidden relative">
+        {/* Bulk Action Bar */}
+        {selectedIds.length > 0 && (
+          <div className="absolute top-0 left-0 right-0 z-20 bg-brand-600 text-white px-6 py-3 flex items-center justify-between animate-slide-up">
+            <div className="flex items-center gap-4">
+              <span className="text-sm font-bold">{selectedIds.length} tickets selected</span>
+              <div className="h-4 w-[1px] bg-white/20" />
+              <button onClick={() => handleBulkStatusChange("In-Progress")} className="text-xs font-bold hover:underline">Mark In-Progress</button>
+              <button onClick={() => handleBulkStatusChange("Closed")} className="text-xs font-bold hover:underline">Close Selected</button>
+            </div>
+            <button onClick={() => setSelectedIds([])} className="text-xs font-bold opacity-80 hover:opacity-100">Deselect All</button>
+          </div>
+        )}
+
         {/* Toolbar */}
-        <div className="p-4 border-b flex items-center justify-between gap-4" style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
+        <div className="p-4 border-b t-border-subtle flex items-center justify-between gap-4">
           <div className="flex items-center gap-4 flex-1">
-            <h2 className="font-bold text-xl px-2 t-text-primary">HD Ticket</h2>
-            <div className="relative max-w-sm flex-1">
+            <div className="flex items-center gap-2">
+              <div className="w-10 h-10 rounded-xl bg-brand-500/10 flex items-center justify-center text-brand-500">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+              </div>
+              <h2 className="font-bold text-xl t-text-primary">HD Tickets</h2>
+            </div>
+            <div className="relative max-w-sm flex-1 ml-4">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 opacity-40">🔍</span>
               <input
                 type="text"
                 placeholder="Search ID or Title..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 rounded-xl text-sm outline-none border transition-all t-text-primary"
+                className="w-full pl-9 pr-4 py-2 rounded-xl text-sm outline-none border t-border-subtle t-text-primary"
                 style={inputStyle}
               />
             </div>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-4 py-2 rounded-xl bg-brand-600 text-white text-xs font-bold hover:bg-brand-700 transition-colors cursor-pointer"
-          >
-            + Add HD Ticket
-          </button>
+          <div className="flex items-center gap-3">
+            <div className="text-right mr-2 hidden sm:block">
+              <p className="text-[10px] font-bold t-text-muted uppercase">Global Total</p>
+              <p className="text-sm font-black t-text-primary">{totalAbsolute}</p>
+            </div>
+            <div className="text-right mr-2 hidden sm:block">
+              <p className="text-[10px] font-bold t-text-muted uppercase">Filtered</p>
+              <p className="text-sm font-black t-text-primary">{stats.total}</p>
+            </div>
+            <button
+              onClick={() => setShowCreateModal(true)}
+              className="px-5 py-2.5 rounded-xl bg-brand-600 text-white text-xs font-bold hover:bg-brand-700 transition-all shadow-lg shadow-brand-500/20 cursor-pointer flex items-center gap-2"
+            >
+              <span>+</span> Add HD Ticket
+            </button>
+          </div>
         </div>
 
         {/* Table */}
         <div className="flex-1 overflow-auto">
           {loading ? <SkeletonLoader count={5} /> : (
-            <table className="w-full text-left border-collapse min-w-[800px]">
-              <thead className="sticky top-0 z-10 bg-zinc-50 dark:bg-zinc-800/50 t-text-muted text-[11px] uppercase tracking-wider">
+            <table className="w-full text-left border-collapse min-w-[1000px]">
+              <thead className="sticky top-0 z-10 t-bg-card t-text-muted text-[11px] uppercase tracking-wider border-b t-border-subtle">
                 <tr>
-                  <th className="px-6 py-3 font-bold">ID</th>
-                  <th className="px-6 py-3 font-bold">Subject</th>
-                  <th className="px-6 py-3 font-bold">Assignee</th>
-                  <th className="px-6 py-3 font-bold">Priority</th>
-                  <th className="px-6 py-3 font-bold">Dept</th>
-                  <th className="px-6 py-3 font-bold">Status</th>
-                  <th className="px-6 py-3 font-bold">Created</th>
-                  <th className="px-6 py-3 font-bold text-right">Action</th>
+                  <th className="px-6 py-4 w-12">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer" 
+                      checked={selectedIds.length === tickets.length && tickets.length > 0}
+                      onChange={toggleSelectAll}
+                    />
+                  </th>
+                  <th className="px-6 py-4 font-bold">Ticket</th>
+                  <th className="px-6 py-4 font-bold">Raised By</th>
+                  <th className="px-6 py-4 font-bold">Team</th>
+                  <th className="px-6 py-4 font-bold">Assignee</th>
+                  <th className="px-6 py-4 font-bold">Priority</th>
+                  <th className="px-6 py-4 font-bold">Status</th>
+                  <th className="px-6 py-4 font-bold">Created</th>
+                  <th className="px-6 py-4 font-bold text-right">Action</th>
                 </tr>
               </thead>
-              <tbody className="divide-y" style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
+              <tbody className="divide-y t-border-subtle">
                 {tickets.map(t => (
                   <tr
                     key={t.id}
                     onClick={() => { setViewTicket(t); setDetailTab("details"); }}
-                    className="group hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-colors"
+                    className={`group hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer transition-colors ${selectedIds.includes(t.id) ? "bg-brand-500/5" : ""}`}
                   >
-                    <td className="px-6 py-4 text-xs font-mono t-text-muted">#{t.id}</td>
-                    <td className="px-6 py-4 font-semibold text-sm t-text-primary">{t.title}</td>
+                    <td className="px-6 py-4" onClick={e => e.stopPropagation()}>
+                      <input 
+                        type="checkbox" 
+                        className="rounded border-gray-300 text-brand-600 focus:ring-brand-500 cursor-pointer" 
+                        checked={selectedIds.includes(t.id)}
+                        onChange={() => toggleSelect(t.id)}
+                      />
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex flex-col">
+                        <span className="text-[10px] font-mono t-text-muted">#{t.id}</span>
+                        <span className="font-bold text-sm t-text-primary group-hover:text-brand-500 transition-colors line-clamp-1">{t.title}</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-xs font-medium t-text-primary">{t.creator?.name || "System"}</td>
+                    <td className="px-6 py-4 text-xs t-text-secondary">{t.creator?.team || t.department}</td>
                     <td className="px-6 py-4 text-xs t-text-secondary">{t.assignee?.name || "—"}</td>
                     <td className="px-6 py-4">
                       <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border ${priorityStyle[t.priority]}`}>
                         {t.priority}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-xs t-text-secondary">{t.department}</td>
                     <td className="px-6 py-4">
                       <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${statusBadge[t.status]}`}>
                         {t.status}
@@ -295,7 +409,7 @@ export default function TicketDashboard() {
                       {t.status !== "Resolved" && (
                         <button
                           onClick={(e) => { e.stopPropagation(); setShowResolveModal(t); }}
-                          className="opacity-0 group-hover:opacity-100 px-3 py-1 rounded-lg bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20 transition-all hover:bg-emerald-500/20"
+                          className="opacity-0 group-hover:opacity-100 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-500 text-[10px] font-bold border border-emerald-500/20 transition-all hover:bg-emerald-500/20"
                         >
                           Resolve
                         </button>
@@ -307,25 +421,30 @@ export default function TicketDashboard() {
             </table>
           )}
           {!loading && tickets.length === 0 && (
-            <div className="py-20 text-center t-text-muted italic">No tickets found.</div>
+            <div className="py-20 text-center t-text-muted italic flex flex-col items-center">
+              <span className="text-4xl mb-4">📂</span>
+              <p>No tickets found matching your filters.</p>
+            </div>
           )}
         </div>
 
         {/* Footer / Pagination */}
-        <div className="p-4 border-t flex items-center gap-4 text-xs font-medium t-text-muted" style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
-          <span className="mr-auto">Showing {tickets.length} results</span>
-          <button className="px-3 py-1 rounded bg-black/5 dark:bg-white/5">20</button>
-          <button className="px-3 py-1 rounded bg-black/5 dark:bg-white/5">100</button>
-          <button className="px-3 py-1 rounded bg-black/5 dark:bg-white/5">500</button>
+        <div className="p-4 border-t t-border-subtle flex items-center gap-4 text-xs font-medium t-text-muted">
+          <span className="mr-auto">Showing {stats.total} of {totalAbsolute} total tickets</span>
+          <div className="flex items-center gap-1">
+            <span className="mr-2">Rows per page:</span>
+            <button className="px-3 py-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors">20</button>
+            <button className="px-3 py-1 rounded bg-black/5 dark:bg-white/5 hover:bg-black/10 dark:hover:bg-white/10 transition-colors">100</button>
+          </div>
         </div>
       </div>
 
       {/* Ticket Detail View Modal */}
       {viewTicket && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm" onClick={() => setViewTicket(null)}>
-          <div className="w-full max-w-5xl h-[85vh] rounded-3xl bg-white dark:bg-zinc-900 border shadow-2xl flex flex-col overflow-hidden animate-slide-up" style={{ borderColor: isDark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)" }} onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-5xl h-[85vh] rounded-3xl t-bg-card border t-border-subtle shadow-2xl flex flex-col overflow-hidden animate-slide-up" onClick={e => e.stopPropagation()}>
             {/* Modal Header */}
-            <div className="p-6 border-b flex items-center justify-between" style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
+            <div className="p-6 border-b t-border-subtle flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${statusBadge[viewTicket.status]}`}>{viewTicket.status}</span>
                 <h2 className="text-xl font-bold t-text-primary">{viewTicket.title}</h2>
@@ -338,7 +457,7 @@ export default function TicketDashboard() {
             </div>
 
             {/* Modal Tabs */}
-            <div className="px-6 flex border-b bg-zinc-50/50 dark:bg-zinc-800/30" style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
+            <div className="px-6 flex border-b t-bg-card/50 t-border-subtle">
               {[
                 { id: "details", label: "Details" },
                 { id: "activity", label: "Activity" },
@@ -360,16 +479,16 @@ export default function TicketDashboard() {
             <div className="flex-1 overflow-y-auto p-8 flex gap-8">
               {detailTab === "details" && (
                 <div className="flex-1 space-y-8">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 p-6 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border" style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-6 p-6 rounded-2xl bg-zinc-50 dark:bg-zinc-800/40 border t-border-subtle">
                     <div><p className="text-[10px] t-text-muted uppercase font-bold mb-1">Priority</p><p className="text-sm font-bold t-text-primary">{viewTicket.priority}</p></div>
                     <div><p className="text-[10px] t-text-muted uppercase font-bold mb-1">Department</p><p className="text-sm font-bold t-text-primary">{viewTicket.department}</p></div>
                     <div><p className="text-[10px] t-text-muted uppercase font-bold mb-1">Assign Agent</p><p className="text-sm font-bold t-text-primary">{viewTicket.assignee?.name || "Unassigned"}</p></div>
-                    <div><p className="text-[10px] t-text-muted uppercase font-bold mb-1">Created By</p><p className="text-sm font-bold t-text-primary">{viewTicket.creator?.name}</p></div>
+                    <div><p className="text-[10px] t-text-muted uppercase font-bold mb-1">Raised By</p><p className="text-sm font-bold t-text-primary">{viewTicket.creator?.name} ({viewTicket.creator?.team || "No Team"})</p></div>
                   </div>
 
                   <div className="space-y-4">
                     <h3 className="text-sm font-bold t-text-primary">Description</h3>
-                    <div className="p-6 rounded-2xl border min-h-[150px] t-text-secondary text-sm leading-relaxed" style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
+                    <div className="p-6 rounded-2xl border t-border-subtle min-h-[150px] t-text-secondary text-sm leading-relaxed">
                       {viewTicket.description || "No description provided."}
                     </div>
                   </div>
@@ -377,7 +496,7 @@ export default function TicketDashboard() {
                   {viewTicket.screenshotUrl && (
                     <div className="space-y-4">
                       <h3 className="text-sm font-bold t-text-primary">Attachments</h3>
-                      <img src={viewTicket.screenshotUrl} className="max-w-md rounded-2xl border shadow-lg" alt="Attachment" />
+                      <img src={viewTicket.screenshotUrl} className="max-w-md rounded-2xl border t-border-subtle shadow-lg" alt="Attachment" />
                     </div>
                   )}
 
@@ -433,10 +552,10 @@ export default function TicketDashboard() {
                     ))}
                     {viewTicket.comments?.length === 0 && <p className="text-center py-10 t-text-muted italic">No comments yet.</p>}
                   </div>
-                  <form onSubmit={handleAddComment} className="mt-auto pt-6 border-t" style={{ borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)" }}>
+                  <form onSubmit={handleAddComment} className="mt-auto pt-6 border-t t-border-subtle">
                     <div className="relative">
                       <textarea
-                        className="w-full pl-4 pr-16 py-3 rounded-2xl text-sm outline-none bg-zinc-100 dark:bg-zinc-800 border-none transition-all resize-none min-h-[100px]"
+                        className="w-full pl-4 pr-16 py-3 rounded-2xl text-sm outline-none bg-zinc-100 dark:bg-zinc-800 border-none transition-all resize-none min-h-[100px] t-text-primary"
                         placeholder="Type a reply / comment..."
                         value={commentText}
                         onChange={e => setCommentText(e.target.value)}
@@ -456,7 +575,7 @@ export default function TicketDashboard() {
       {/* Create Ticket Modal */}
       {showCreateModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowCreateModal(false)}>
-          <div className="w-full max-w-xl bg-white dark:bg-zinc-900 rounded-[2.5rem] p-10 border shadow-2xl animate-scale-up" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-xl t-bg-card rounded-[2.5rem] p-10 border t-border-subtle shadow-2xl animate-scale-up" onClick={e => e.stopPropagation()}>
             <h2 className="text-2xl font-black t-text-primary mb-8 tracking-tight">Create New Helpdesk Ticket</h2>
             <form onSubmit={handleCreateTicket} className="space-y-5">
               <div>
@@ -504,7 +623,7 @@ export default function TicketDashboard() {
       {/* Resolve Ticket Modal */}
       {showResolveModal && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowResolveModal(null)}>
-          <div className="w-full max-w-lg bg-white dark:bg-zinc-900 rounded-[2.5rem] p-10 border shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="w-full max-w-lg t-bg-card rounded-[2.5rem] p-10 border t-border-subtle shadow-2xl" onClick={e => e.stopPropagation()}>
             <h2 className="text-2xl font-black t-text-primary mb-2 tracking-tight">Resolve Ticket #{showResolveModal.id}</h2>
             <p className="text-xs t-text-muted mb-8">Resolution details are required to close this ticket.</p>
             <form onSubmit={handleResolveTicket} className="space-y-6">
