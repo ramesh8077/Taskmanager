@@ -24,10 +24,10 @@ const SALT_ROUNDS = 12;
 
 // ─── Cookie configuration ───────────────────────────────────────────────────
 const COOKIE_OPTIONS = {
-  httpOnly: true,                                         // Prevents client-side JS access (XSS protection)
-  secure: process.env.NODE_ENV === "production",          // HTTPS only in production
-  sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax", // CSRF protection
-  maxAge: 24 * 60 * 60 * 1000,                           // 1 day in milliseconds
+    httpOnly: true,
+    secure: true, 
+    sameSite: "none", 
+    maxAge: 24 * 60 * 60 * 1000, 
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,8 +203,8 @@ const logout = async (req, res) => {
     // Clear the token cookie by setting maxAge to 0
     res.cookie("token", "", {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: process.env.NODE_ENV === "production" ? "strict" : "lax",
+      secure: true,
+      sameSite: none,
       maxAge: 0, // Expire immediately
     });
 

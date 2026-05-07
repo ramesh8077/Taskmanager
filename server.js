@@ -28,6 +28,7 @@ const ticketRoutes = require("./src/routes/ticketRoutes");
 // ─── Initialize Express App ─────────────────────────────────────────────────
 
 const app = express();
+app.set("trust proxy", 1);
 
 // ─── Middleware ──────────────────────────────────────────────────────────────
 
