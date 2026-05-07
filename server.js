@@ -106,9 +106,9 @@ const startServer = async () => {
     await db.sequelize.sync({ alter: true });
     console.log("✅ All models synchronized with database.");
 
-    // Start Express server
-    app.listen(PORT, () => {
-      console.log(`\n🚀 Server is running on http://localhost:${PORT}`);
+    // Start Express server — bind to 0.0.0.0 for Railway/Docker compatibility
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`\n🚀 Server is running on http://0.0.0.0:${PORT}`);
       console.log(`📡 Environment: ${appConfig.NODE_ENV}`);
       console.log(`🔐 Auth     → /api/auth`);
       console.log(`👥 Users    → /api/users`);
