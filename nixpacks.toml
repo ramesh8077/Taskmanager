@@ -1,0 +1,14 @@
+# Railway Nixpacks Configuration
+# Tells Railway to use Node.js and run from root directory
+
+[phases.setup]
+nixPkgs = ["nodejs_20", "npm-9_x"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm start"
