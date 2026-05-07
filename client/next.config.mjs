@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   async rewrites() {
-    const backendApiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
+    const backendApiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://taskmanager-production-4b08.up.railway.app/api';
 
     return [
       {
@@ -12,4 +12,4 @@ const nextConfig = {
   }
 };
 
-export default nextConfig;
+module.exports = nextConfig;
