@@ -6,7 +6,8 @@
  *   2. Configures essential middleware (CORS, JSON parsing, Cookie parsing).
  *   3. Authenticates & syncs the Sequelize database connection.
  *   4. Mounts route handlers.
- *   5. Starts the HTTP server.
+ *   5. In production: also serves the Next.js frontend.
+ *   6. Starts the HTTP server.
  */
 
 require("dotenv").config();
@@ -14,6 +15,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const path = require("path");
 const appConfig = require("./src/config/app.config");
 const db = require("./src/models");
 
@@ -70,26 +72,6 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/tickets", ticketRoutes);
 
-// ─── 404 Handler ─────────────────────────────────────────────────────────────
-
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Route ${req.originalUrl} not found.`,
-  });
-});
-
-// ─── Global Error Handler ────────────────────────────────────────────────────
-
-app.use((err, req, res, next) => {
-  console.error("❌ Unhandled Error:", err.message);
-  res.status(err.status || 500).json({
-    success: false,
-    message: err.message || "Internal Server Error",
-    ...(appConfig.NODE_ENV === "development" && { stack: err.stack }),
-  });
-});
-
 // ─── Database Sync & Server Start ────────────────────────────────────────────
 
 const PORT = appConfig.PORT;
@@ -106,6 +88,19 @@ const startServer = async () => {
     await db.sequelize.sync({ alter: true });
     console.log("✅ All models synchronized with database.");
 
+    // ─── Production: Integrate Next.js frontend ──────────────────────────
+    if (appConfig.NODE_ENV === "production") {
+      await setupNextJS();
+    } else {
+      // Development: just add 404 handler for API routes
+      app.use((req, res) => {
+        res.status(404).json({
+          success: false,
+          message: `Route ${req.originalUrl} not found.`,
+        });
+      });
+    }
+
     // Start Express server — bind to 0.0.0.0 for Railway/Docker compatibility
     app.listen(PORT, "0.0.0.0", () => {
       console.log(`\n🚀 Server is running on http://0.0.0.0:${PORT}`);
@@ -121,4 +116,42 @@ const startServer = async () => {
   }
 };
 
+/**
+ * Setup Next.js as request handler within Express (Production only)
+ * 
+ * Express handles /api/* routes (defined above).
+ * Everything else is forwarded to Next.js (pages, static assets, etc.)
+ */
+async function setupNextJS() {
+  try {
+    const next = require("next");
+    const frontendDir = path.join(__dirname, "frontend");
+
+    const nextApp = next({
+      dev: false,
+      dir: frontendDir,
+    });
+
+    await nextApp.prepare();
+    console.log("✅ Next.js frontend prepared successfully.");
+
+    const nextHandler = nextApp.getRequestHandler();
+
+    // Serve all non-API routes through Next.js
+    app.all("*", (req, res) => {
+      return nextHandler(req, res);
+    });
+  } catch (error) {
+    console.error("⚠️ Next.js setup failed, serving API only:", error.message);
+    // Fallback: just add 404 handler for non-API routes
+    app.use((req, res) => {
+      res.status(404).json({
+        success: false,
+        message: `Route ${req.originalUrl} not found.`,
+      });
+    });
+  }
+}
+
 startServer();
+
