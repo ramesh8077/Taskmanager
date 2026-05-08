@@ -88,18 +88,12 @@ const startServer = async () => {
     await db.sequelize.sync({ alter: true });
     console.log("✅ All models synchronized with database.");
 
-    // ─── Production: Integrate Next.js frontend ──────────────────────────
-    if (appConfig.NODE_ENV === "production") {
-      await setupNextJS();
-    } else {
-      // Development: just add 404 handler for API routes
       app.use((req, res) => {
         res.status(404).json({
           success: false,
-          message: `Route ${req.originalUrl} not found.`,
+          message: `Route ${req.originalUrl} not found. Backend API sirf /api routes par kaam karti hai.`,
         });
       });
-    }
 
     // Start Express server — bind to 0.0.0.0 for Railway/Docker compatibility
     app.listen(PORT, "0.0.0.0", () => {
@@ -144,12 +138,12 @@ async function setupNextJS() {
   } catch (error) {
     console.error("⚠️ Next.js setup failed, serving API only:", error.message);
     // Fallback: just add 404 handler for non-API routes
-    app.use((req, res) => {
-      res.status(404).json({
-        success: false,
-        message: `Route ${req.originalUrl} not found.`,
-      });
-    });
+    // app.use((req, res) => {
+    //   res.status(404).json({
+    //     success: false,
+    //     message: `Route ${req.originalUrl} not found.`,
+    //   });
+    // });
   }
 }
 
