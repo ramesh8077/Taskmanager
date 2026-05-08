@@ -204,7 +204,7 @@ const logout = async (req, res) => {
     res.cookie("token", "", {
       httpOnly: true,
       secure: true,
-      sameSite: none,
+      sameSite: "none",
       maxAge: 0, // Expire immediately
     });
 
