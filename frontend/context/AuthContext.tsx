@@ -92,6 +92,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       const { data } = await API.post("/auth/login", { email, password });
       if (data.success) {
+        if (data.data.token) {
+          localStorage.setItem("token", data.data.token);
+        }
         setUser(data.data.user);
         toast.success(data.message || "Login successful!");
         router.push("/dashboard");
@@ -147,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       const { data } = await API.post("/auth/logout");
+      localStorage.removeItem("token");
       setUser(null);
       toast.success(data?.message || "Logged out successfully.");
       router.push("/login");

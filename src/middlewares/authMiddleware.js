@@ -25,8 +25,11 @@ const appConfig = require("../config/app.config");
  */
 const verifyToken = (req, res, next) => {
   try {
-    // ── Extract token from cookies ──────────────────────────────────────
-    const token = req.cookies?.token;
+    // ── Extract token from cookies or Authorization header ─────────────────
+    let token = req.cookies?.token;
+    if (!token && req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+      token = req.headers.authorization.split(" ")[1];
+    }
 
     if (!token) {
       return res.status(401).json({
