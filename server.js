@@ -37,7 +37,7 @@ app.set("trust proxy", 1);
 // Enable CORS for all origins (tighten in production)
 app.use(
   cors({
-    origin: appConfig.CORS_ORIGIN,
+    origin: appConfig.CORS_ORIGIN === "*" ? true : appConfig.CORS_ORIGIN,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true, // Required for cookies to be sent cross-origin
