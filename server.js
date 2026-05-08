@@ -88,12 +88,16 @@ const startServer = async () => {
     await db.sequelize.sync({ alter: true });
     console.log("✅ All models synchronized with database.");
 
+    if (appConfig.NODE_ENV === "production") {
+      await setupNextJS();
+    } else {
       app.use((req, res) => {
         res.status(404).json({
           success: false,
           message: `Route ${req.originalUrl} not found. Backend API sirf /api routes par kaam karti hai.`,
         });
       });
+    }
 
     // Start Express server — bind to 0.0.0.0 for Railway/Docker compatibility
     app.listen(PORT, "0.0.0.0", () => {
