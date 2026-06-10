@@ -13,27 +13,14 @@ const dbConfig = require("../config/db.config");
 
 // ─── 1. Create Sequelize Instance ────────────────────────────────────────────
 
-let sequelize;
-
-if (dbConfig.url) {
-  // Connect via DATABASE_URL connection string
-  sequelize = new Sequelize(dbConfig.url, {
-    dialect: dbConfig.dialect,
-    pool: dbConfig.pool,
-    dialectOptions: dbConfig.dialectOptions,
-    logging: dbConfig.logging,
-  });
-} else {
-  // Connect via individual config parameters
-  sequelize = new Sequelize(dbConfig.DB, dbConfig.USER, dbConfig.PASSWORD, {
-    host: dbConfig.HOST,
-    port: dbConfig.PORT,
-    dialect: dbConfig.dialect,
-    pool: dbConfig.pool,
-    dialectOptions: dbConfig.dialectOptions,
-    logging: dbConfig.logging,
-  });
-}
+const sequelize = new Sequelize(dbConfig.DB, dbConfig.USER, dbConfig.PASSWORD, {
+  host: dbConfig.HOST,
+  port: dbConfig.PORT,
+  dialect: dbConfig.dialect,
+  pool: dbConfig.pool,
+  dialectOptions: dbConfig.dialectOptions,
+  logging: dbConfig.logging,
+});
 
 // ─── 2. Initialize Models ───────────────────────────────────────────────────
 
