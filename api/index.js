@@ -7,6 +7,10 @@
  * DB connection is initialized once per cold start (singleton pattern).
  */
 
+// Explicit imports so Vercel's bundler includes these packages
+// (Sequelize loads mysql2 dynamically, which the bundler can't trace)
+require("mysql2");
+
 require("dotenv").config();
 
 const express = require("express");
