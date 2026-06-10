@@ -74,6 +74,22 @@ app.use(async (req, res, next) => {
     await ensureDB();
     next();
   } catch (err) {
+    // Parse DATABASE_URL for debug info (hide password)
+    let parsedInfo = {};
+    try {
+      const dbUrl = process.env.DATABASE_URL || "";
+      const urlObj = new URL(dbUrl);
+      parsedInfo = {
+        host: urlObj.hostname,
+        port: urlObj.port,
+        username: urlObj.username,
+        database: urlObj.pathname.slice(1),
+        passwordLength: urlObj.password ? urlObj.password.length : 0,
+      };
+    } catch (e) {
+      parsedInfo = { parseError: e.message, rawUrlStart: (process.env.DATABASE_URL || "").substring(0, 30) + "..." };
+    }
+
     res.status(500).json({
       success: false,
       message: "Database connection failed. Please check environment variables.",
@@ -81,6 +97,7 @@ app.use(async (req, res, next) => {
       debug: {
         hasDBUrl: !!process.env.DATABASE_URL,
         nodeEnv: process.env.NODE_ENV,
+        parsed: parsedInfo,
       },
     });
   }
