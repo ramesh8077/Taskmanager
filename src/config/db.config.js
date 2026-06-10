@@ -17,10 +17,25 @@ const DATABASE_URL = process.env.DATABASE_URL;
 let connectionConfig;
 
 if (DATABASE_URL) {
-  // Use connection URI directly — Sequelize accepts this in the constructor
-  connectionConfig = {
-    url: DATABASE_URL,
-  };
+  try {
+    const urlObj = new URL(DATABASE_URL);
+    connectionConfig = {
+      HOST: urlObj.hostname,
+      PORT: urlObj.port || 3306,
+      USER: urlObj.username,
+      PASSWORD: decodeURIComponent(urlObj.password || ""),
+      DB: urlObj.pathname.slice(1),
+    };
+  } catch (e) {
+    console.error("Failed to parse DATABASE_URL, falling back to env vars:", e.message);
+    connectionConfig = {
+      HOST: process.env.DB_HOST || "localhost",
+      PORT: process.env.DB_PORT || 3306,
+      USER: process.env.DB_USER || "root",
+      PASSWORD: process.env.DB_PASSWORD || "",
+      DB: process.env.DB_NAME || "team_task_manager",
+    };
+  }
 } else {
   // Fallback to individual environment variables
   connectionConfig = {
