@@ -77,7 +77,11 @@ app.use(async (req, res, next) => {
     res.status(500).json({
       success: false,
       message: "Database connection failed. Please check environment variables.",
-      error: process.env.NODE_ENV === "production" ? undefined : err.message,
+      error: err.message,
+      debug: {
+        hasDBUrl: !!process.env.DATABASE_URL,
+        nodeEnv: process.env.NODE_ENV,
+      },
     });
   }
 });
