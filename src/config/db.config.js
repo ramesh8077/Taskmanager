@@ -48,6 +48,15 @@ module.exports = {
     // Ensures proper date handling
     dateStrings: true,
     typeCast: true,
+    // TiDB Cloud requires SSL/TLS for connections
+    ...(DATABASE_URL
+      ? {
+          ssl: {
+            minVersion: "TLSv1.2",
+            rejectUnauthorized: true,
+          },
+        }
+      : {}),
   },
 
   // Sequelize logging — disable in production

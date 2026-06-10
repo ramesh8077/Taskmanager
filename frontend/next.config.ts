@@ -1,16 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: "/api/:path*",
-        destination: process.env.NEXT_PUBLIC_API_URL
-          ? `${process.env.NEXT_PUBLIC_API_URL}/:path*`
-          : "https://taskmanager-production-4b08.up.railway.app/api/:path*",
-      },
-    ];
-  },
+  /* API routes are handled by Vercel serverless function on the same domain */
 };
 
 export default nextConfig;
