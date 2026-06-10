@@ -73,18 +73,40 @@ function ensureDB() {
 app.get("/api/dbtest", async (req, res) => {
   const mysql = require("mysql2/promise");
   const password = process.env.DB_PASSWORD || "";
+  const host = process.env.DB_HOST || "";
+  const user = process.env.DB_USER || "";
+  const port = process.env.DB_PORT || "";
+  const dbName = process.env.DB_NAME || "";
+
   const maskedPass = password.length > 4
     ? password.slice(0, 2) + "***" + password.slice(-2)
     : "***";
 
-  const results = { maskedPassword: maskedPass, tests: {} };
+  const results = {
+    maskedPassword: maskedPass,
+    diagnostics: {
+      passwordLength: password.length,
+      passwordHasLeadingSpace: password.startsWith(" "),
+      passwordHasTrailingSpace: password.endsWith(" "),
+      passwordHasNewline: password.includes("\n") || password.includes("\r"),
+      passwordCharCodes: [...password].map(c => c.charCodeAt(0)),
+      user: user,
+      userLength: user.length,
+      userHasLeadingSpace: user.startsWith(" "),
+      userHasTrailingSpace: user.endsWith(" "),
+      host: host,
+      port: port,
+      dbName: dbName,
+    },
+    tests: {}
+  };
 
   // Test 1: Connect WITHOUT database name
   try {
     const conn1 = await mysql.createConnection({
-      host: process.env.DB_HOST,
-      port: parseInt(process.env.DB_PORT || "4000"),
-      user: process.env.DB_USER,
+      host: host,
+      port: parseInt(port || "4000"),
+      user: user,
       password: password,
       ssl: { minVersion: "TLSv1.2", rejectUnauthorized: false },
       connectTimeout: 10000,
@@ -104,11 +126,11 @@ app.get("/api/dbtest", async (req, res) => {
   // Test 2: Connect WITH database name
   try {
     const conn2 = await mysql.createConnection({
-      host: process.env.DB_HOST,
-      port: parseInt(process.env.DB_PORT || "4000"),
-      user: process.env.DB_USER,
+      host: host,
+      port: parseInt(port || "4000"),
+      user: user,
       password: password,
-      database: process.env.DB_NAME,
+      database: dbName,
       ssl: { minVersion: "TLSv1.2", rejectUnauthorized: false },
       connectTimeout: 10000,
     });
