@@ -57,8 +57,7 @@ function ensureDB() {
   if (!dbReady) {
     dbReady = db.sequelize
       .authenticate()
-      .then(() => db.sequelize.sync())
-      .then(() => console.log("✅ DB connected & synced on Vercel"))
+      .then(() => console.log("✅ DB connected on Vercel"))
       .catch((err) => {
         console.error("❌ DB connection failed:", err.message);
         dbReady = null; // Reset so next request retries
