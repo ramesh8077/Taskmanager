@@ -4,40 +4,122 @@ const TicketComment = db.TicketComment;
 const TicketHistory = db.TicketHistory;
 const User = db.User;
 const { Op } = require("sequelize");
+const {
+  scopedTicketQuery,
+  scopedTicketByIdQuery,
+  scopedUserQuery,
+  scopedProjectQuery,
+  scopedTaskByIdQuery,
+} = require("../lib/scope");
 
 /**
  * CREATE TICKET
  */
 const createTicket = async (req, res) => {
   try {
-    const { title, description, screenshotUrl, priority, department, assignedTo } = req.body;
-
-    if (!title || !department || !priority) {
-      return res.status(400).json({
-        success: false,
-        message: "Title, Department, and Priority (P0, P1, P2) are required.",
+    const { title, description, screenshotUrl, priority, department, assignedTo, deadline, projectId, taskId } = req.body;
+    let assigneeId = null;
+    let assigneeName = null;
+    if (assignedTo !== undefined && assignedTo !== null) {
+      if (
+        !req.user.permissions.includes("ticket:assign") &&
+        Number(assignedTo) !== Number(req.user.id)
+      ) {
+        return res.status(403).json({
+          ok: false,
+          error: { code: "FORBIDDEN", message: "You may only assign this ticket to yourself." },
+          success: false,
+          message: "You may only assign this ticket to yourself.",
+        });
+      }
+      const assignee = await User.findOne({
+        where: {
+          [Op.and]: [
+            { id: assignedTo, role: "EMPLOYEE", status: "ACTIVE" },
+            scopedUserQuery(req.user),
+          ],
+        },
       });
+      if (!assignee) {
+        return res.status(404).json({
+          ok: false,
+          error: { code: "NOT_FOUND", message: "Assignee is outside your permitted scope." },
+          success: false,
+          message: "Assignee is outside your permitted scope.",
+        });
+      }
+      assigneeId = assignee.id;
+      assigneeName = assignee.name;
     }
 
-    const ticket = await Ticket.create({
-      title,
-      description,
-      screenshotUrl,
-      priority,
-      department,
-      assignedTo: assignedTo || null,
-      createdBy: req.user.id,
-      status: "Open",
-    });
+    let linkedProjectId = projectId || null;
+    if (taskId) {
+      const linkedTask = await db.Task.findOne({
+        where: scopedTaskByIdQuery(req.user, taskId),
+        include: [
+          { model: User, as: "assignee", attributes: ["id"], required: false },
+          { model: db.Project, as: "project", attributes: ["id"], required: false },
+        ],
+      });
+      if (!linkedTask || (projectId && Number(linkedTask.projectId) !== Number(projectId))) {
+        return res.status(404).json({ success: false, message: "Task is outside your permitted scope or does not belong to the selected project." });
+      }
+    }
+    if (linkedProjectId) {
+      const project = await db.Project.findOne({ where: { id: linkedProjectId, ...scopedProjectQuery(req.user) } });
+      if (!project) return res.status(404).json({ success: false, message: "Project is outside your permitted scope." });
+    }
 
-    // Log creation in history
-    await TicketHistory.create({
-      ticketId: ticket.id,
-      changedBy: req.user.id,
-      field: "status",
-      oldValue: null,
-      newValue: "Open",
-      action: "created",
+    const ticket = await db.sequelize.transaction(async (transaction) => {
+      const createdTicket = await Ticket.create(
+        {
+          title,
+          description,
+          screenshotUrl,
+          priority,
+          department,
+          assignedTo: assigneeId,
+          deadline: deadline || null,
+          projectId: linkedProjectId,
+          taskId: taskId || null,
+          createdBy: req.user.id,
+          status: "Open",
+        },
+        { transaction }
+      );
+      await TicketHistory.create(
+        {
+          ticketId: createdTicket.id,
+          changedBy: req.user.id,
+          field: "status",
+          oldValue: null,
+          newValue: "Open",
+          action: "created",
+        },
+        { transaction }
+      );
+      if (assigneeId) {
+        await TicketHistory.create({
+          ticketId: createdTicket.id,
+          changedBy: req.user.id,
+          field: "assignedTo",
+          oldValue: "Unassigned",
+          newValue: assigneeName,
+          action: "assigned",
+        }, { transaction });
+      }
+      if (assigneeId) {
+        const notification = db.Notification.build({
+          userId: assigneeId,
+          type: "ticket_assigned",
+          title: "Ticket assigned to you",
+          message: `Ticket #${createdTicket.id} “${createdTicket.title}” was assigned to you.`,
+          link: `/dashboard?ticket=${createdTicket.id}`,
+          dedupeKey: `ticket:${createdTicket.id}:created-assignment`,
+        });
+        await notification.save({ transaction });
+      }
+      return createdTicket;
     });
 
     return res.status(201).json({
@@ -59,28 +141,28 @@ const createTicket = async (req, res) => {
  */
 const getTickets = async (req, res) => {
   try {
-    const { search, status, priority, department } = req.query;
-    const whereClause = {};
+    const { search, status, priority, department } =
+      req.validatedQuery || req.query;
+    const whereClause = { [Op.and]: [scopedTicketQuery(req.user)] };
 
-    // RBAC: Members see assigned or created tickets. Admin sees all.
-    if (req.user.role === "Member") {
-      whereClause[Op.or] = [
-        { assignedTo: req.user.id },
-        { createdBy: req.user.id }
-      ];
+    if (status) {
+      const statuses = status.split(",").map((value) => value.trim());
+      whereClause.status = statuses.length === 1 ? statuses[0] : { [Op.in]: statuses };
     }
-
-    if (status) whereClause.status = status;
-    if (priority) whereClause.priority = priority;
+    if (priority) {
+      const priorities = priority.split(",").map((value) => value.trim());
+      whereClause.priority = priorities.length === 1 ? priorities[0] : { [Op.in]: priorities };
+    }
     if (department) whereClause.department = department;
 
     // Search by ID or Title
     if (search) {
-      const isNumeric = /^\d+$/.test(search);
+      const searchTerm = search.trim();
+      const isNumeric = /^\d+$/.test(searchTerm);
       if (isNumeric) {
-        whereClause.id = parseInt(search);
+        whereClause.id = Number(searchTerm);
       } else {
-        whereClause.title = { [Op.like]: `%${search}%` };
+        whereClause.title = { [Op.like]: `%${searchTerm}%` };
       }
     }
 
@@ -107,9 +189,9 @@ const getTickets = async (req, res) => {
     });
 
     const absoluteTotal = await Ticket.count({
-      where: req.user.role === "Member" ? {
-        [Op.or]: [{ assignedTo: req.user.id }, { createdBy: req.user.id }]
-      } : {}
+      where: scopedTicketQuery(req.user),
+      include: [{ model: User, as: "assignee", attributes: [], required: false }],
+      distinct: true,
     });
 
     return res.status(200).json({
@@ -135,7 +217,7 @@ const getTickets = async (req, res) => {
  */
 const resolveTicket = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.validatedParams || req.params;
     const { rootCause, department, assignedTo } = req.body;
 
     if (!rootCause || !department || !assignedTo) {
@@ -145,36 +227,87 @@ const resolveTicket = async (req, res) => {
       });
     }
 
-    const ticket = await Ticket.findByPk(id);
+    const ticket = await Ticket.findOne({
+      where: scopedTicketByIdQuery(req.user, id),
+      include: [{ model: User, as: "assignee", attributes: ["id", "createdById"] }],
+    });
     if (!ticket) {
       return res.status(404).json({ success: false, message: "Ticket not found." });
     }
+    if (!req.user.permissions.includes("ticket:update:any") &&
+      !(req.user.permissions.includes("ticket:assign") && req.user.role === "ADMIN") &&
+      Number(ticket.assignedTo) !== Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: "Only the assigned member or an administrator may resolve this ticket." });
+    }
 
-    // Only Admin or Assigned Agent can resolve
-    if (req.user.role === "Member" && ticket.assignedTo !== req.user.id) {
-      return res.status(403).json({ success: false, message: "You are not authorized to resolve this ticket." });
+    const assignee = await User.findOne({
+      where: {
+        [Op.and]: [
+          { id: assignedTo, role: "EMPLOYEE", status: "ACTIVE" },
+          scopedUserQuery(req.user),
+        ],
+      },
+    });
+    if (!assignee) {
+      return res.status(404).json({
+        ok: false,
+        error: { code: "NOT_FOUND", message: "Assignee is outside your permitted scope." },
+        success: false,
+        message: "Assignee is outside your permitted scope.",
+      });
     }
 
     const oldStatus = ticket.status;
     const oldDept = ticket.department;
     const oldAssignee = ticket.assignedTo;
 
-    ticket.status = "Resolved";
-    ticket.rootCause = rootCause;
-    ticket.department = department;
-    ticket.assignedTo = assignedTo;
-    await ticket.save();
+    await db.sequelize.transaction(async (transaction) => {
+      ticket.status = "Resolved";
+      ticket.rootCause = rootCause;
+      ticket.department = department;
+      ticket.assignedTo = assignee.id;
+      await ticket.save({ transaction });
 
-    // Log changes
-    if (oldStatus !== "Resolved") {
-      await TicketHistory.create({ ticketId: id, changedBy: req.user.id, field: "status", oldValue: oldStatus, newValue: "Resolved", action: "status_changed" });
-    }
-    if (oldDept !== department) {
-      await TicketHistory.create({ ticketId: id, changedBy: req.user.id, field: "department", oldValue: oldDept, newValue: department, action: "updated" });
-    }
-    if (oldAssignee !== assignedTo) {
-      await TicketHistory.create({ ticketId: id, changedBy: req.user.id, field: "assignedTo", oldValue: String(oldAssignee), newValue: String(assignedTo), action: "reassigned" });
-    }
+      if (oldStatus !== "Resolved") {
+        await TicketHistory.create(
+          {
+            ticketId: id,
+            changedBy: req.user.id,
+            field: "status",
+            oldValue: oldStatus,
+            newValue: "Resolved",
+            action: "status_changed",
+          },
+          { transaction }
+        );
+      }
+      if (oldDept !== department) {
+        await TicketHistory.create(
+          {
+            ticketId: id,
+            changedBy: req.user.id,
+            field: "department",
+            oldValue: oldDept,
+            newValue: department,
+            action: "updated",
+          },
+          { transaction }
+        );
+      }
+      if (oldAssignee !== assignee.id) {
+        await TicketHistory.create(
+          {
+            ticketId: id,
+            changedBy: req.user.id,
+            field: "assignedTo",
+            oldValue: String(oldAssignee),
+            newValue: String(assignee.id),
+            action: "reassigned",
+          },
+          { transaction }
+        );
+      }
+    });
 
     return res.status(200).json({
       success: true,
@@ -195,14 +328,17 @@ const resolveTicket = async (req, res) => {
  */
 const addComment = async (req, res) => {
   try {
-    const { id } = req.params; // ticketId
+    const { id } = req.validatedParams || req.params;
     const { comment } = req.body;
 
     if (!comment) {
       return res.status(400).json({ success: false, message: "Comment cannot be empty." });
     }
 
-    const ticket = await Ticket.findByPk(id);
+    const ticket = await Ticket.findOne({
+      where: scopedTicketByIdQuery(req.user, id),
+      include: [{ model: User, as: "assignee", attributes: ["id", "createdById"] }],
+    });
     if (!ticket) {
       return res.status(404).json({ success: false, message: "Ticket not found." });
     }

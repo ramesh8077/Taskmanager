@@ -1,7 +1,21 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* API routes are handled by Vercel serverless function on the same domain */
+  experimental: {
+    externalDir: true,
+  },
+  async rewrites() {
+    if (process.env.NODE_ENV !== "development") {
+      return [];
+    }
+
+    return [
+      {
+        source: "/api/:path*",
+        destination: "http://127.0.0.1:5000/api/:path*",
+      },
+    ];
+  },
 };
 
 export default nextConfig;

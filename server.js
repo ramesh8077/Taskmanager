@@ -18,6 +18,8 @@ const cookieParser = require("cookie-parser");
 const path = require("path");
 const appConfig = require("./src/config/app.config");
 const db = require("./src/models");
+const apiResponse = require("./src/middlewares/apiResponse");
+const { emitDeadlineNotifications } = require("./src/controllers/ticketWorkflowController");
 
 // ─── Import Routes ──────────────────────────────────────────────────────────
 
@@ -37,7 +39,12 @@ app.set("trust proxy", 1);
 // Enable CORS for all origins (tighten in production)
 app.use(
   cors({
-    origin: appConfig.CORS_ORIGIN === "*" ? true : appConfig.CORS_ORIGIN,
+    origin(origin, callback) {
+      if (!origin || appConfig.CORS_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Origin is not allowed by CORS."));
+    },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true, // Required for cookies to be sent cross-origin
@@ -52,6 +59,7 @@ app.use(express.urlencoded({ extended: true }));
 
 // Parse cookies from incoming requests (needed for JWT auth)
 app.use(cookieParser());
+app.use(apiResponse);
 
 // ─── Health Check Route ─────────────────────────────────────────────────────
 
@@ -71,6 +79,16 @@ app.use("/api/users", userRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/tickets", ticketRoutes);
+app.use((error, req, res, next) => {
+  console.error("Request middleware failed:", error);
+  if (res.headersSent) return next(error);
+  return res.status(500).json({
+    ok: false,
+    error: { code: "REQUEST_FAILED", message: "The request could not be completed." },
+    success: false,
+    message: "The request could not be completed.",
+  });
+});
 
 // ─── Database Sync & Server Start ────────────────────────────────────────────
 
@@ -78,15 +96,36 @@ const PORT = appConfig.PORT;
 
 const startServer = async () => {
   try {
+    if (!appConfig.JWT_SECRET || appConfig.JWT_SECRET.length < 32) {
+      throw new Error("JWT_SECRET must contain at least 32 characters.");
+    }
     // Test database connection
     await db.sequelize.authenticate();
     console.log("✅ Database connection established successfully.");
 
-    // Sync all models with the database
-    // Use { force: true } to drop & recreate tables (DEVELOPMENT ONLY)
-    // Use { alter: true } to alter existing tables to match models
-    await db.sequelize.sync({ alter: true });
-    console.log("✅ All models synchronized with database.");
+    const [migrationRows] = await db.sequelize.query(
+      "SELECT `migration_name` FROM `schema_migrations`"
+    );
+    const requiredMigrations = [
+      "202609280001-rbac-foundation.js",
+      "202609290001-task-progress.js",
+      "202609290002-ticket-workflow.js",
+    ];
+    const missingMigrations = requiredMigrations.filter(
+      (migration) => !migrationRows.some((row) => row.migration_name === migration)
+    );
+    if (missingMigrations.length) {
+      throw new Error("Database migrations are missing. Run `npm run db:migrate` before starting the server.");
+    }
+    console.log("✅ Database migrations are current.");
+    emitDeadlineNotifications().catch((error) => {
+      console.error("Unable to generate ticket deadline notifications:", error);
+    });
+    setInterval(() => {
+      emitDeadlineNotifications().catch((error) => {
+        console.error("Unable to generate ticket deadline notifications:", error);
+      });
+    }, 60 * 60 * 1000).unref();
 
     if (appConfig.NODE_ENV === "production") {
       await setupNextJS();
@@ -106,12 +145,15 @@ const startServer = async () => {
       console.log(`🔐 Auth     → /api/auth`);
       console.log(`👥 Users    → /api/users`);
       console.log(`📁 Projects → /api/projects`);
-      console.log(`✅ Tasks    → /api/tasks\n`);
+      console.log(`✅ Tasks    → /api/tasks`);
+      console.log(`🎫 Tickets  → /api/tickets\n`);
     });
-  } catch (error) {
-    console.error("❌ Unable to start server:", error.message);
-    process.exit(1);
-  }
+
+} catch (error) {
+  console.error("❌ Unable to start server:");
+  console.dir(error, { depth: null });
+  process.exit(1);
+}
 };
 
 /**
@@ -152,4 +194,3 @@ async function setupNextJS() {
 }
 
 startServer();
-

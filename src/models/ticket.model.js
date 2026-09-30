@@ -42,6 +42,29 @@ module.exports = (sequelize) => {
         type: DataTypes.TEXT,
         allowNull: true,
       },
+      resolvedBy: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "users", key: "id" },
+      },
+      resolvedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      deadline: {
+        type: DataTypes.DATEONLY,
+        allowNull: true,
+      },
+      projectId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "projects", key: "id" },
+      },
+      taskId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "tasks", key: "id" },
+      },
       createdBy: {
         type: DataTypes.INTEGER,
         allowNull: false,

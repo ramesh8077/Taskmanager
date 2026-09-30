@@ -65,8 +65,8 @@ export default function LoginPage() {
     <main className="min-h-screen flex items-center justify-center bg-surface-primary px-4 py-12">
       {/* Background orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
-        <div className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-brand-600/20 rounded-full blur-[120px]" />
-        <div className="absolute -bottom-40 -right-40 w-[400px] h-[400px] bg-indigo-500/15 rounded-full blur-[100px]" />
+        <div className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-brand-500/8 rounded-full blur-[120px]" />
+        <div className="absolute -bottom-40 -right-40 w-[400px] h-[400px] bg-indigo-400/8 rounded-full blur-[100px]" />
       </div>
 
       <div className="relative w-full max-w-md animate-fade-in">
@@ -77,27 +77,27 @@ export default function LoginPage() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
             </svg>
           </div>
-          <h1 className="text-2xl font-bold text-white tracking-tight">Welcome back</h1>
-          <p className="text-gray-400 mt-1 text-sm">Sign in to your Team Task Manager account</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h1>
+          <p className="text-slate-600 mt-1 text-sm">Sign in to your Team Task Manager account</p>
         </div>
 
         {/* Card */}
-        <div className="bg-surface-card border border-border-subtle rounded-2xl p-8 backdrop-blur-sm shadow-2xl shadow-black/40">
+        <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-xl shadow-slate-900/8">
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
             <div>
-              <label htmlFor="login-email" className="block text-sm font-medium text-gray-300 mb-1.5">Email Address</label>
+              <label htmlFor="login-email" className="block text-sm font-medium text-slate-700 mb-1.5">Email Address</label>
               <input id="login-email" name="email" type="email" autoComplete="email" value={form.email} onChange={handleChange} placeholder="you@example.com"
-                className={`w-full px-4 py-2.5 rounded-xl bg-surface-input border text-white placeholder-gray-500 text-sm transition-all duration-200 focus:bg-surface-input-focus focus:border-brand-500 focus:ring-1 focus:ring-brand-500/40 outline-none ${errors.email ? "border-red-500/60" : "border-border-default"}`}
+                className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-slate-900 placeholder-slate-400 text-sm transition-all duration-200 focus:bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 outline-none ${errors.email ? "border-red-500/60" : "border-slate-300"}`}
               />
-              {errors.email && <p className="mt-1.5 text-xs text-red-400">{errors.email}</p>}
+              {errors.email && <p className="mt-1.5 text-xs text-red-600">{errors.email}</p>}
             </div>
 
             <div>
-              <label htmlFor="login-password" className="block text-sm font-medium text-gray-300 mb-1.5">Password</label>
+              <label htmlFor="login-password" className="block text-sm font-medium text-slate-700 mb-1.5">Password</label>
               <input id="login-password" name="password" type="password" autoComplete="current-password" value={form.password} onChange={handleChange} placeholder="••••••••"
-                className={`w-full px-4 py-2.5 rounded-xl bg-surface-input border text-white placeholder-gray-500 text-sm transition-all duration-200 focus:bg-surface-input-focus focus:border-brand-500 focus:ring-1 focus:ring-brand-500/40 outline-none ${errors.password ? "border-red-500/60" : "border-border-default"}`}
+                className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-slate-900 placeholder-slate-400 text-sm transition-all duration-200 focus:bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 outline-none ${errors.password ? "border-red-500/60" : "border-slate-300"}`}
               />
-              {errors.password && <p className="mt-1.5 text-xs text-red-400">{errors.password}</p>}
+              {errors.password && <p className="mt-1.5 text-xs text-red-600">{errors.password}</p>}
             </div>
 
             <button type="submit" disabled={submitting}
@@ -113,9 +113,9 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-6 pt-6 border-t border-border-subtle text-center">
-            <p className="text-sm text-gray-400">
+            <p className="text-sm text-slate-600">
               Don&apos;t have an account?{" "}
-              <Link href="/register" className="text-brand-400 hover:text-brand-200 font-medium transition-colors">Create one</Link>
+              <Link href="/register" className="text-brand-600 hover:text-brand-700 font-semibold transition-colors">Create one</Link>
             </p>
           </div>
         </div>

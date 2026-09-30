@@ -16,7 +16,6 @@ import {
   useContext,
   useState,
   useEffect,
-  useCallback,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
@@ -29,7 +28,8 @@ interface User {
   id: number;
   name: string;
   email: string;
-  role: "Admin" | "Member";
+  role: "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "EMPLOYEE";
+  permissions: string[];
   createdAt?: string;
 }
 
@@ -42,7 +42,6 @@ interface AuthContextType {
     name: string;
     email: string;
     password: string;
-    role: string;
   }) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -60,25 +59,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const isAuthenticated = !!user;
 
-  // Verify session on initial mount
-  const checkAuth = useCallback(async () => {
-    try {
-      const { data } = await API.get("/auth/me");
-      if (data.success) {
-        setUser(data.data.user);
-      } else {
-        setUser(null);
-      }
-    } catch {
-      setUser(null);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+    let mounted = true;
+    const restoreSession = async () => {
+      try {
+        const { data } = await API.get("/auth/me");
+        if (mounted) setUser(data.success ? data.data.user : null);
+      } catch {
+        if (mounted) setUser(null);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    void restoreSession();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   // Login
   const login = async ({
@@ -92,9 +89,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setLoading(true);
       const { data } = await API.post("/auth/login", { email, password });
       if (data.success) {
-        if (data.token) {
-          localStorage.setItem("token", data.token);
-        }
         setUser(data.data.user);
         toast.success(data.message || "Login successful!");
         router.push("/dashboard");
@@ -115,12 +109,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name,
     email,
     password,
-    role,
   }: {
     name: string;
     email: string;
     password: string;
-    role: string;
   }) => {
     try {
       setLoading(true);
@@ -128,7 +120,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name,
         email,
         password,
-        role,
       });
       if (data.success) {
         toast.success(data.message || "Registration successful! Please log in.");
@@ -150,7 +141,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setLoading(true);
       const { data } = await API.post("/auth/logout");
-      localStorage.removeItem("token");
       setUser(null);
       toast.success(data?.message || "Logged out successfully.");
       router.push("/login");

@@ -32,7 +32,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased light`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-surface-primary text-foreground">
@@ -44,14 +44,14 @@ export default function RootLayout({
               toastOptions={{
                 duration: 4000,
                 style: {
-                  background: "rgba(15, 15, 25, 0.95)",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  color: "#e2e8f0",
+                  background: "#ffffff",
+                  border: "1px solid #e2e8f0",
+                  color: "#172033",
                   backdropFilter: "blur(12px)",
                   fontSize: "14px",
                 },
                 success: {
-                  iconTheme: { primary: "#6366f1", secondary: "#fff" },
+                  iconTheme: { primary: "#4f46e5", secondary: "#fff" },
                 },
                 error: {
                   iconTheme: { primary: "#ef4444", secondary: "#fff" },

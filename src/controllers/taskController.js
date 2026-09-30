@@ -31,6 +31,12 @@ const Task = db.Task;
 const Project = db.Project;
 const User = db.User;
 const TaskHistory = db.TaskHistory;
+const {
+  scopedTaskQuery,
+  scopedTaskByIdQuery,
+  scopedProjectQuery,
+  scopedUserQuery,
+} = require("../lib/scope");
 
 // ─── Priority weight map for sorting ────────────────────────────────────────
 const PRIORITY_ORDER = { Urgent: 1, High: 2, Medium: 3, Low: 4 };
@@ -67,7 +73,9 @@ const createTask = async (req, res) => {
     }
 
     // ── Verify the project exists ─────────────────────────────────────────
-    const project = await Project.findByPk(projectId);
+    const project = await Project.findOne({
+      where: { [Op.and]: [{ id: projectId }, scopedProjectQuery(req.user)] },
+    });
 
     if (!project) {
       return res.status(404).json({
@@ -77,7 +85,14 @@ const createTask = async (req, res) => {
     }
 
     // ── Verify the assigned user exists and is a Member ───────────────────
-    const assignee = await User.findByPk(assignedTo);
+    const assignee = await User.findOne({
+      where: {
+        [Op.and]: [
+          { id: assignedTo, status: "ACTIVE", role: "EMPLOYEE" },
+          scopedUserQuery(req.user),
+        ],
+      },
+    });
 
     if (!assignee) {
       return res.status(404).json({
@@ -86,7 +101,7 @@ const createTask = async (req, res) => {
       });
     }
 
-    if (assignee.role !== "Member") {
+    if (assignee.role !== "EMPLOYEE") {
       return res.status(400).json({
         success: false,
         message: "Tasks can only be assigned to users with the 'Member' role.",
@@ -94,40 +109,38 @@ const createTask = async (req, res) => {
     }
 
     // ── Create the task ───────────────────────────────────────────────────
-    const newTask = await Task.create({
-      title,
-      description: description || null,
-      dueDate,
-      projectId,
-      assignedTo,
-      priority: taskPriority,
-      status: "Pending", // Always starts as Pending
-    });
-
-    // ── Log creation in history ───────────────────────────────────────────
-    await TaskHistory.create({
-      taskId: newTask.id,
-      changedBy: req.user.id,
-      field: "task",
-      oldValue: null,
-      newValue: `Created with priority: ${taskPriority}, assigned to: ${assignee.name}`,
-      action: "created",
-    });
-
-    // ── Fetch the created task with associations for the response ─────────
-    const taskWithDetails = await Task.findByPk(newTask.id, {
-      include: [
+    const taskWithDetails = await db.sequelize.transaction(async (transaction) => {
+      const newTask = await Task.create(
         {
-          model: Project,
-          as: "project",
-          attributes: ["id", "title"],
+          title,
+          description: description || null,
+          dueDate,
+          projectId,
+          assignedTo: assignee.id,
+          assignedById: req.user.id,
+          priority: taskPriority,
+          status: "Pending",
         },
+        { transaction }
+      );
+      await TaskHistory.create(
         {
-          model: User,
-          as: "assignee",
-          attributes: ["id", "name", "email"],
+          taskId: newTask.id,
+          changedBy: req.user.id,
+          field: "task",
+          oldValue: null,
+          newValue: `Created with priority: ${taskPriority}, assigned to: ${assignee.name}`,
+          action: "created",
         },
-      ],
+        { transaction }
+      );
+      return Task.findByPk(newTask.id, {
+        transaction,
+        include: [
+          { model: Project, as: "project", attributes: ["id", "title"] },
+          { model: User, as: "assignee", attributes: ["id", "name", "email"] },
+        ],
+      });
     });
 
     return res.status(201).json({
@@ -192,16 +205,10 @@ const getTasks = async (req, res) => {
       search,
       sortBy = "createdAt",
       sortOrder = "DESC",
-    } = req.query;
+    } = req.validatedQuery || req.query;
 
     // ── Build the WHERE clause based on user role ─────────────────────────
-    const whereClause = {};
-
-    if (req.user.role === "Member") {
-      // Members can ONLY see tasks assigned to them
-      whereClause.assignedTo = req.user.id;
-    }
-    // Admins: no filter — they see everything
+    const whereClause = { [Op.and]: [scopedTaskQuery(req.user)] };
 
     // ── Apply filters ────────────────────────────────────────────────────
     if (status) {
@@ -216,7 +223,7 @@ const getTasks = async (req, res) => {
       whereClause.priority = { [Op.in]: priorities };
     }
 
-    if (filterAssignedTo && req.user.role === "Admin") {
+    if (filterAssignedTo && req.user.permissions.includes("task:assign")) {
       whereClause.assignedTo = filterAssignedTo;
     }
 
@@ -262,14 +269,10 @@ const getTasks = async (req, res) => {
 
       // Search by assignee name — use a subquery approach
       searchConditions.push({
-        assignedTo: {
-          [Op.in]: db.sequelize.literal(
-            `(SELECT id FROM users WHERE name LIKE '%${searchTerm.replace(/'/g, "''")}%')`
-          ),
-        },
+        "$assignee.name$": { [Op.like]: `%${searchTerm}%` },
       });
 
-      whereClause[Op.or] = searchConditions;
+      whereClause[Op.and].push({ [Op.or]: searchConditions });
     }
 
     // ── Build sort order ─────────────────────────────────────────────────
@@ -338,7 +341,7 @@ const getTasks = async (req, res) => {
  */
 const updateStatus = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.validatedParams || req.params;
     const { status, completedBy, completedAt } = req.body;
 
     // ── Validate status value ─────────────────────────────────────────────
@@ -389,7 +392,13 @@ const updateStatus = async (req, res) => {
     }
 
     // ── Find the task ─────────────────────────────────────────────────────
-    const task = await Task.findByPk(id);
+    const task = await Task.findOne({
+      where: scopedTaskByIdQuery(req.user, id),
+      include: [
+        { model: Project, as: "project", attributes: ["id", "createdBy"] },
+        { model: User, as: "assignee", attributes: ["id", "createdById"] },
+      ],
+    });
 
     if (!task) {
       return res.status(404).json({
@@ -398,53 +407,62 @@ const updateStatus = async (req, res) => {
       });
     }
 
-    // ── Authorization check ───────────────────────────────────────────────
-    // Admin can update any task. Member can ONLY update their own assigned task.
-    if (req.user.role === "Member" && task.assignedTo !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: "Forbidden. You can only update the status of tasks assigned to you.",
-      });
-    }
-
     // ── Log status change in history ──────────────────────────────────────
-    const oldStatus = task.status;
-    if (oldStatus !== status) {
-      const historyNewValue = status === "Completed"
-        ? `Completed by: ${completedBy.trim()} on ${completedAt}`
-        : status;
+    await db.sequelize.transaction(async (transaction) => {
+      const oldStatus = task.status;
+      const oldProgress = task.progress;
+      if (oldStatus !== status) {
+        const historyNewValue = status === "Completed"
+          ? `Completed by: ${completedBy.trim()} on ${completedAt}`
+          : status;
 
-      await TaskHistory.create({
-        taskId: task.id,
-        changedBy: req.user.id,
-        field: "status",
-        oldValue: oldStatus,
-        newValue: historyNewValue,
-        action: "status_changed",
-      });
-    }
+        await TaskHistory.create(
+          {
+            taskId: task.id,
+            changedBy: req.user.id,
+            field: "status",
+            oldValue: oldStatus,
+            newValue: historyNewValue,
+            action: "status_changed",
+          },
+          { transaction }
+        );
+      }
 
-    // ── Update the status (and completion info if Completed) ──────────────
-    task.status = status;
-
-    if (status === "Completed") {
-      task.completedBy = completedBy.trim();
-      task.completedAt = completedAt;
-    } else {
-      // If reverting from Completed, clear completion fields
-      task.completedBy = null;
-      task.completedAt = null;
-    }
-
-    await task.save();
+      task.status = status;
+      if (status === "Completed") {
+        task.progress = 100;
+        task.completedBy = completedBy.trim();
+        task.completedAt = completedAt;
+      } else {
+        if (status === "Pending" || oldStatus === "Completed") task.progress = 0;
+        task.completedBy = null;
+        task.completedAt = null;
+      }
+      if (oldProgress !== task.progress) {
+        await TaskHistory.create(
+          {
+            taskId: task.id,
+            changedBy: req.user.id,
+            field: "progress",
+            oldValue: String(oldProgress),
+            newValue: String(task.progress),
+            action: "updated",
+          },
+          { transaction }
+        );
+      }
+      await task.save({ transaction });
+    });
 
     // ── Re-fetch with associations for the response ───────────────────────
-    const updatedTask = await Task.findByPk(id, {
+    const updatedTask = await Task.findOne({
+      where: scopedTaskByIdQuery(req.user, id),
       include: [
         {
           model: Project,
           as: "project",
-          attributes: ["id", "title"],
+          attributes: ["id", "title", "createdBy"],
         },
         {
           model: User,
@@ -468,6 +486,77 @@ const updateStatus = async (req, res) => {
   }
 };
 
+const updateProgress = async (req, res) => {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const { progress } = req.body;
+    const task = await Task.findOne({
+      where: scopedTaskByIdQuery(req.user, id),
+      include: [
+        { model: Project, as: "project", attributes: ["id", "title", "createdBy"] },
+        { model: User, as: "assignee", attributes: ["id", "name", "email", "createdById"] },
+      ],
+    });
+    if (!task) {
+      return res.status(404).json({ success: false, message: `Task with ID ${id} not found.` });
+    }
+    if (task.status === "Completed" && progress !== 100) {
+      return res.status(409).json({
+        success: false,
+        message: "Completed tasks must remain at 100%. Change the task status before editing progress.",
+      });
+    }
+    if (task.status !== "Completed" && progress === 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Complete the task using the completion workflow to set progress to 100%.",
+      });
+    }
+    if (task.progress !== progress) {
+      await db.sequelize.transaction(async (transaction) => {
+        if (progress > 0 && task.status === "Pending") {
+          await TaskHistory.create(
+            {
+              taskId: task.id,
+              changedBy: req.user.id,
+              field: "status",
+              oldValue: task.status,
+              newValue: "In-Progress",
+              action: "status_changed",
+            },
+            { transaction }
+          );
+          task.status = "In-Progress";
+        }
+        await TaskHistory.create(
+          {
+            taskId: task.id,
+            changedBy: req.user.id,
+            field: "progress",
+            oldValue: String(task.progress),
+            newValue: String(progress),
+            action: "updated",
+          },
+          { transaction }
+        );
+        task.progress = progress;
+        await task.save({ transaction });
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Task progress updated successfully.",
+      data: { task: { id: task.id, progress: task.progress, status: task.status } },
+    });
+  } catch (error) {
+    console.error("❌ Update Task Progress Error:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while updating task progress.",
+    });
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // UPDATE TASK PRIORITY
 // ─────────────────────────────────────────────────────────────────────────────
@@ -479,7 +568,7 @@ const updateStatus = async (req, res) => {
  */
 const updatePriority = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.validatedParams || req.params;
     const { priority } = req.body;
 
     // ── Validate priority value ───────────────────────────────────────────
@@ -500,7 +589,13 @@ const updatePriority = async (req, res) => {
     }
 
     // ── Find the task ─────────────────────────────────────────────────────
-    const task = await Task.findByPk(id);
+    const task = await Task.findOne({
+      where: scopedTaskByIdQuery(req.user, id),
+      include: [
+        { model: Project, as: "project", attributes: ["id", "createdBy"] },
+        { model: User, as: "assignee", attributes: ["id", "createdById"] },
+      ],
+    });
 
     if (!task) {
       return res.status(404).json({
@@ -510,29 +605,33 @@ const updatePriority = async (req, res) => {
     }
 
     // ── Log priority change in history ────────────────────────────────────
-    const oldPriority = task.priority;
-    if (oldPriority !== priority) {
-      await TaskHistory.create({
-        taskId: task.id,
-        changedBy: req.user.id,
-        field: "priority",
-        oldValue: oldPriority,
-        newValue: priority,
-        action: "priority_changed",
-      });
-    }
-
-    // ── Update the priority ───────────────────────────────────────────────
-    task.priority = priority;
-    await task.save();
+    await db.sequelize.transaction(async (transaction) => {
+      const oldPriority = task.priority;
+      if (oldPriority !== priority) {
+        await TaskHistory.create(
+          {
+            taskId: task.id,
+            changedBy: req.user.id,
+            field: "priority",
+            oldValue: oldPriority,
+            newValue: priority,
+            action: "priority_changed",
+          },
+          { transaction }
+        );
+      }
+      task.priority = priority;
+      await task.save({ transaction });
+    });
 
     // ── Re-fetch with associations ────────────────────────────────────────
-    const updatedTask = await Task.findByPk(id, {
+    const updatedTask = await Task.findOne({
+      where: scopedTaskByIdQuery(req.user, id),
       include: [
         {
           model: Project,
           as: "project",
-          attributes: ["id", "title"],
+          attributes: ["id", "title", "createdBy"],
         },
         {
           model: User,
@@ -567,20 +666,21 @@ const updatePriority = async (req, res) => {
  */
 const getTaskHistory = async (req, res) => {
   try {
-    const { id } = req.params;
+    const { id } = req.validatedParams || req.params;
 
     // ── Find the task ─────────────────────────────────────────────────────
-    const task = await Task.findByPk(id, {
+    const task = await Task.findOne({
+      where: { [Op.and]: [{ id }, scopedTaskQuery(req.user)] },
       include: [
         {
           model: Project,
           as: "project",
-          attributes: ["id", "title"],
+          attributes: ["id", "title", "createdBy"],
         },
         {
           model: User,
           as: "assignee",
-          attributes: ["id", "name", "email"],
+          attributes: ["id", "createdById"],
         },
       ],
     });
@@ -589,14 +689,6 @@ const getTaskHistory = async (req, res) => {
       return res.status(404).json({
         success: false,
         message: `Task with ID ${id} not found.`,
-      });
-    }
-
-    // ── Authorization check ───────────────────────────────────────────────
-    if (req.user.role === "Member" && task.assignedTo !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: "Forbidden. You can only view the history of tasks assigned to you.",
       });
     }
 
@@ -610,7 +702,7 @@ const getTaskHistory = async (req, res) => {
           attributes: ["id", "name", "email"],
         },
       ],
-      order: [["createdAt", "DESC"]],
+      order: [["createdAt", "ASC"]],
     });
 
     return res.status(200).json({
@@ -636,5 +728,6 @@ module.exports = {
   getTasks,
   updateStatus,
   updatePriority,
+  updateProgress,
   getTaskHistory,
 };

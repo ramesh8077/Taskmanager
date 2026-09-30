@@ -11,6 +11,8 @@
 import { useState, useEffect } from "react";
 import API from "@/lib/axios";
 import { useTheme } from "@/context/ThemeContext";
+import toast from "react-hot-toast";
+import { TaskProgressControl } from "@/components/TaskProgress";
 
 interface HistoryEntry {
   id: number;
@@ -28,6 +30,9 @@ interface TaskDetail {
   status: string;
   priority: string;
   dueDate: string;
+  completedAt?: string | null;
+  description?: string | null;
+  progress: number;
   project?: { id: number; title: string };
   assignee?: { id: number; name: string; email: string };
 }
@@ -69,6 +74,9 @@ function getActionLabel(entry: HistoryEntry): string {
   switch (entry.action) {
     case "created":
       return "Task Created";
+    case "updated":
+      if (entry.field === "progress") return `Progress: ${entry.oldValue}% → ${entry.newValue}%`;
+      return `${entry.field} updated`;
     case "status_changed":
       return `Status: ${entry.oldValue} → ${entry.newValue}`;
     case "priority_changed":
@@ -85,30 +93,53 @@ export default function TaskTimeline({ taskId, onClose }: TaskTimelineProps) {
   const [task, setTask] = useState<TaskDetail | null>(null);
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     const fetchHistory = async () => {
       try {
         setLoading(true);
+        setLoadError("");
         const { data } = await API.get(`/tasks/${taskId}/history`);
         if (data.success) {
           setTask(data.data.task);
           setHistory(data.data.history || []);
         }
-      } catch {
-        // Silently handle — modal will show empty state
+      } catch (error) {
+        setLoadError((error as { response?: { data?: { message?: string } } }).response?.data?.message || "Could not load task details and history.");
       } finally {
         setLoading(false);
       }
     };
     fetchHistory();
-  }, [taskId]);
+  }, [taskId, refreshKey]);
+
+  const updateProgress = async (progress: number) => {
+    try {
+      const { data } = await API.put(`/tasks/${taskId}/progress`, { progress });
+      if (!data.success) throw new Error(data.message || "Progress was not saved.");
+      setTask((current) => current ? { ...current, progress: data.data.task.progress, status: data.data.task.status } : current);
+      try {
+        const historyResponse = await API.get(`/tasks/${taskId}/history`);
+        setHistory(historyResponse.data.data.history || []);
+      } catch {
+        toast.error("Progress saved, but the activity timeline could not be refreshed.");
+      }
+      toast.success("Task progress saved.");
+      return true;
+    } catch (error) {
+      toast.error((error as { response?: { data?: { message?: string } }; message?: string }).response?.data?.message ||
+        (error as { message?: string }).message || "Could not update task progress.");
+      return false;
+    }
+  };
 
   const priorityBadge: Record<string, string> = {
-    Low: "bg-gray-500/15 text-gray-400 border-gray-500/20",
-    Medium: "bg-blue-500/15 text-blue-400 border-blue-500/20",
-    High: "bg-orange-500/15 text-orange-400 border-orange-500/20",
-    Urgent: "bg-red-500/15 text-red-400 border-red-500/20",
+    Low: "bg-slate-100 text-slate-700 border-slate-200",
+    Medium: "bg-blue-50 text-blue-700 border-blue-200",
+    High: "bg-orange-50 text-orange-700 border-orange-200",
+    Urgent: "bg-red-50 text-red-700 border-red-200",
   };
 
   return (
@@ -141,10 +172,11 @@ export default function TaskTimeline({ taskId, onClose }: TaskTimelineProps) {
                 )}
               </div>
               <h2 className="text-xl font-bold t-text-primary truncate">{task?.title || "Loading…"}</h2>
-              <div className="flex items-center gap-3 mt-2 text-xs t-text-muted">
+              <div className="flex flex-wrap items-center gap-3 mt-2 text-xs t-text-muted">
                 {task?.project && <span>📁 {task.project.title}</span>}
                 {task?.assignee && <span>👤 {task.assignee.name}</span>}
                 {task?.dueDate && <span>📅 {task.dueDate}</span>}
+                {task?.completedAt && <span>✓ Completed {task.completedAt}</span>}
               </div>
             </div>
             <button
@@ -164,56 +196,53 @@ export default function TaskTimeline({ taskId, onClose }: TaskTimelineProps) {
               <div className="w-8 h-8 border-3 border-indigo-500 border-t-transparent rounded-full animate-spin" />
               <p className="text-sm t-text-muted">Loading timeline…</p>
             </div>
-          ) : history.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-4xl mb-3">📋</p>
-              <p className="t-text-muted text-sm">No history entries yet.</p>
-            </div>
+          ) : loadError ? (
+            <div role="alert" className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 text-sm text-red-700">{loadError}<button type="button" className="ml-3 font-semibold underline" onClick={() => setRefreshKey((key) => key + 1)}>Retry</button></div>
           ) : (
-            <div className="relative">
-              {/* Vertical timeline line */}
-              <div
-                className="absolute left-[17px] top-2 bottom-2 w-[2px]"
-                style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)" }}
-              />
-
-              <div className="space-y-6">
-                {history.map((entry, index) => (
-                  <div key={entry.id} className="relative flex gap-4 animate-fade-in" style={{ animationDelay: `${index * 50}ms` }}>
-                    {/* Timeline dot */}
-                    <div
-                      className={`w-9 h-9 rounded-xl bg-gradient-to-br ${actionColors[entry.action] || "from-gray-500 to-gray-600"} flex items-center justify-center text-sm shadow-lg flex-shrink-0 z-10`}
-                    >
-                      {actionIcons[entry.action] || "📝"}
-                    </div>
-
-                    {/* Content */}
-                    <div
-                      className="flex-1 rounded-xl p-4 border transition-colors"
-                      style={{
-                        background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
-                        borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
-                      }}
-                    >
-                      <p className="text-sm font-semibold t-text-primary">
-                        {getActionLabel(entry)}
-                      </p>
-                      {entry.newValue && entry.action === "created" && (
-                        <p className="text-xs t-text-muted mt-1">{entry.newValue}</p>
-                      )}
-                      <div className="flex items-center justify-between mt-2">
-                        <span className="text-[11px] t-text-muted">
-                          by {entry.changedByUser?.name || "System"}
-                        </span>
-                        <span className="text-[11px] t-text-muted">
-                          {formatDate(entry.createdAt)}
-                        </span>
+            <>
+              {task && <section className="rounded-xl border t-border-subtle p-4">
+                <h3 className="text-sm font-semibold t-text-primary">Task details</h3>
+                <p className="mt-2 whitespace-pre-wrap text-sm t-text-secondary">{task.description || "No description provided."}</p>
+                <div className="mt-4"><TaskProgressControl progress={task.status === "Completed" ? 100 : task.progress || 0} status={task.status} onSave={updateProgress} size={52} /></div>
+                <p className="mt-3 text-xs t-text-muted">Subtasks, comments, and attachments are not configured in this project. They are not shown as historical data.</p>
+              </section>}
+              {history.length === 0 ? (
+                <div className="py-8 text-center">
+                  <p className="mb-3 text-4xl">📋</p>
+                  <p className="text-sm t-text-muted">No historical activity is available for this task. New supported actions will be recorded going forward.</p>
+                </div>
+              ) : (
+                <div className="relative">
+                  <div
+                    className="absolute bottom-2 left-[17px] top-2 w-[2px]"
+                    style={{ background: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)" }}
+                  />
+                  <div className="space-y-6">
+                    {history.map((entry, index) => (
+                      <div key={entry.id} className="relative flex gap-4 animate-fade-in" style={{ animationDelay: `${index * 50}ms` }}>
+                        <div className={`z-10 flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-gradient-to-br ${actionColors[entry.action] || "from-gray-500 to-gray-600"} text-sm shadow-lg`}>
+                          {actionIcons[entry.action] || "📝"}
+                        </div>
+                        <div
+                          className="flex-1 rounded-xl border p-4 transition-colors"
+                          style={{
+                            background: isDark ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+                            borderColor: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
+                          }}
+                        >
+                          <p className="text-sm font-semibold t-text-primary">{getActionLabel(entry)}</p>
+                          {entry.newValue && entry.action === "created" && <p className="mt-1 text-xs t-text-muted">{entry.newValue}</p>}
+                          <div className="mt-2 flex items-center justify-between">
+                            <span className="text-[11px] t-text-muted">by {entry.changedByUser?.name || "System"}</span>
+                            <span className="text-[11px] t-text-muted">{formatDate(entry.createdAt)}</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-            </div>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

@@ -6,10 +6,11 @@
  *   - getAllProjects: Retrieves all projects with associated tasks (Admin only).
  * 
  * All operations require authentication via verifyToken middleware.
- * Admin-only operations are additionally protected by isAdmin middleware.
+ * Mutations and reads are additionally protected by database-backed permissions.
  */
 
 const db = require("../models");
+const { scopedProjectQuery } = require("../lib/scope");
 
 const Project = db.Project;
 const Task = db.Task;
@@ -67,6 +68,49 @@ const createProject = async (req, res) => {
   }
 };
 
+const getProject = async (req, res) => {
+  try {
+    const project = await Project.findOne({
+      where: { id: req.validatedParams.id, ...scopedProjectQuery(req.user) },
+      include: [
+        {
+          model: User,
+          as: "creator",
+          attributes: ["id", "name", "email"],
+        },
+        {
+          model: Task,
+          as: "tasks",
+          include: [
+            {
+              model: User,
+              as: "assignee",
+              attributes: ["id", "name", "email"],
+            },
+          ],
+        },
+      ],
+    });
+    if (!project) {
+      return res.status(404).json({
+        success: false,
+        message: "Project not found.",
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Project fetched successfully.",
+      data: { project },
+    });
+  } catch (error) {
+    console.error("Get Project Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error while fetching project.",
+    });
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // GET ALL PROJECTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -79,6 +123,7 @@ const createProject = async (req, res) => {
 const getAllProjects = async (req, res) => {
   try {
     const projects = await Project.findAll({
+      where: scopedProjectQuery(req.user),
       include: [
         {
           model: User,
@@ -119,5 +164,6 @@ const getAllProjects = async (req, res) => {
 
 module.exports = {
   createProject,
+  getProject,
   getAllProjects,
 };

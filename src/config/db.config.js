@@ -23,14 +23,16 @@ const dbConfig = {
     idle: 10000,
   },
 
-  dialectOptions: {
-    dateStrings: true,
-    typeCast: true,
-    ssl: {
-      minVersion: "TLSv1.2",
-      rejectUnauthorized: false,
-    },
-  },
+  // dialectOptions: {
+  //   dateStrings: true,
+  //   typeCast: true,
+  //   ssl: {
+  //     minVersion: "TLSv1.2",
+  //     rejectUnauthorized: false,
+  //   },
+  // },
+
+  dialectOptions: {},
 
   logging: process.env.NODE_ENV === "production" ? false : console.log,
 };

@@ -4,8 +4,8 @@
  * Dashboard Page
  *
  * Protected route that renders:
- *   - AdminDashboard  when user.role === "Admin"
- *   - MemberDashboard when user.role === "Member"
+ *   - AdminDashboard when the user has task:create permission
+ *   - MemberDashboard for other authenticated users
  *
  * Includes theme toggle (dark/light mode) in the navbar.
  */
@@ -17,15 +17,18 @@ import TicketDashboard from "@/components/TicketDashboard";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useState } from "react";
+import { can } from "@/lib/rbac";
 
 export default function DashboardPage() {
   const { user, logout } = useAuth();
-  const { isDark, toggleTheme } = useTheme();
+  const { isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<"tasks" | "tickets">("tasks");
 
   return (
     <ProtectedRoute>
-      <main className="min-h-screen pb-20" style={{ background: "var(--background)" }}>
+      <main className="min-h-screen pb-20 bg-surface-primary"   style={{
+    color: "#0f172a",
+  }}>
         {/* ── Navbar ──────────────────────────────────────────────────────── */}
         <nav
           className="border-b backdrop-blur-md sticky top-0 z-50 transition-colors"
@@ -37,12 +40,12 @@ export default function DashboardPage() {
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-md shadow-brand-500/15">
+                <div className="w-9 h-9 rounded-xl bg-linear-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-md shadow-brand-500/15">
                   <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                   </svg>
                 </div>
-                <span className="font-semibold text-lg tracking-tight hidden md:block t-text-primary">Task Manager</span>
+                <span className="font-semibold text-lg tracking-tight hidden md:block text-black">Task Manager</span>
               </div>
 
               {/* Tab Switcher */}
@@ -67,8 +70,9 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              {/* Theme Toggle */}
-              <button
+
+              {/* Theme Toggle currently disabled */}
+              {/* <button
                 onClick={toggleTheme}
                 className="w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer group"
                 style={{
@@ -81,15 +85,15 @@ export default function DashboardPage() {
                 <span className="text-lg transition-transform group-hover:scale-110">
                   {isDark ? "☀️" : "🌙"}
                 </span>
-              </button>
+              </button> */}
 
               {/* User Info */}
               <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-xs font-bold uppercase">
+                <div className="w-8 h-8 rounded-full bg-linear-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-xs font-bold uppercase">
                   {user?.name?.charAt(0) || "?"}
                 </div>
                 <div className="hidden sm:block">
-                  <p className="text-sm font-medium leading-none t-text-primary">{user?.name}</p>
+                  <p className="text-sm font-medium leading-none text-black">{user?.name}</p>
                   <p className="text-xs t-text-muted mt-0.5">{user?.role}</p>
                 </div>
               </div>
@@ -97,9 +101,10 @@ export default function DashboardPage() {
               {/* Logout */}
               <button
                 onClick={logout}
-                className="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer"
+                className="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer text-red-600 hover:text-red-700 hover:bg-red-50 focus:bg-red-50 active:bg-red-100"
                 style={{
-                  color: isDark ? "#d1d5db" : "#475569",
+                  // color: isDark ? "#d1d5db" : "#475569",
+                  background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
                   border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
                 }}
                 id="logout-btn"
@@ -115,17 +120,17 @@ export default function DashboardPage() {
           {activeTab === "tasks" ? (
             <>
               <div className="mb-8">
-                <h1 className="text-2xl sm:text-3xl font-bold t-text-primary">
+                <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
                   Welcome, {user?.name} 👋
                 </h1>
-                <p className="t-text-secondary mt-1 text-sm">
+                <p className="text-slate-800 mt-1 text-sm">
                   Logged in as{" "}
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-brand-500/15 text-brand-400 border border-brand-500/20">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-300">
                     {user?.role}
                   </span>
                 </p>
               </div>
-              {user?.role === "Admin" ? <AdminDashboard /> : <MemberDashboard />}
+              {can(user, "task:create") ? <AdminDashboard /> : <MemberDashboard />}
             </>
           ) : (
             <TicketDashboard />

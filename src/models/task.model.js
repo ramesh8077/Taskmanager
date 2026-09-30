@@ -53,6 +53,16 @@ module.exports = (sequelize) => {
             args: [["Low", "Medium", "High", "Urgent"]],
             msg: "Priority must be 'Low', 'Medium', 'High', or 'Urgent'.",
           },
+          progress: {
+            type: DataTypes.INTEGER,
+            allowNull: false,
+            defaultValue: 0,
+            validate: {
+              min: 0,
+              max: 100,
+              isInt: true,
+            },
+          },
         },
       },
       dueDate: {
@@ -84,6 +94,15 @@ module.exports = (sequelize) => {
           key: "id",
         },
         comment: "Foreign key referencing the user assigned to this task.",
+      },
+      assignedById: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "users",
+          key: "id",
+        },
+        comment: "User who assigned this task.",
       },
       completedBy: {
         type: DataTypes.STRING(150),

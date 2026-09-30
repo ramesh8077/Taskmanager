@@ -7,6 +7,7 @@ import SkeletonLoader from "@/components/SkeletonLoader";
 import TaskFilters, { type FilterState } from "@/components/TaskFilters";
 import TaskTimeline from "@/components/TaskTimeline";
 import CompleteTaskModal from "@/components/CompleteTaskModal";
+import { TaskProgressControl } from "@/components/TaskProgress";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
 
@@ -15,6 +16,7 @@ interface Task {
   title: string;
   description?: string;
   status: string;
+  progress: number;
   priority: string;
   dueDate: string;
   completedBy?: string;
@@ -56,6 +58,7 @@ export default function MemberDashboard() {
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [timelineTaskId, setTimelineTaskId] = useState<number | null>(null);
+  const [progressUpdatingId, setProgressUpdatingId] = useState<number | null>(null);
 
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
   const [completingSubmitting, setCompletingSubmitting] = useState(false);
@@ -93,7 +96,7 @@ export default function MemberDashboard() {
       const { data } = await API.put(`/tasks/${taskId}/status`, { status: newStatus });
       if (data.success) {
         toast.success(`Status updated to "${newStatus}"`);
-        setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)));
+        setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, progress: newStatus === "Pending" || t.status === "Completed" ? 0 : t.progress } : t)));
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to update status.");
@@ -113,13 +116,31 @@ export default function MemberDashboard() {
       });
       if (data.success) {
         toast.success(`Task "${completingTask.title}" marked as completed!`);
-        setTasks((prev) => prev.map((t) => t.id === completingTask.id ? { ...t, status: "Completed", completedBy, completedAt } : t));
+        setTasks((prev) => prev.map((t) => t.id === completingTask.id ? { ...t, status: "Completed", progress: 100, completedBy, completedAt } : t));
         setCompletingTask(null);
       }
     } catch (err: any) {
       toast.error(err.response?.data?.message || "Failed to complete task.");
     } finally {
       setCompletingSubmitting(false);
+    }
+  };
+
+  const handleProgressUpdate = async (taskId: number, progress: number) => {
+    try {
+      setProgressUpdatingId(taskId);
+      const { data } = await API.put(`/tasks/${taskId}/progress`, { progress });
+      if (!data.success) throw new Error(data.message || "Progress was not saved.");
+      setTasks((previous) => previous.map((task) => task.id === taskId ? { ...task, progress: data.data.task.progress, status: data.data.task.status } : task));
+      toast.success("Task progress saved.");
+      return true;
+    } catch (err: unknown) {
+      const message = (err as { response?: { data?: { message?: string } }; message?: string }).response?.data?.message ||
+        (err as { message?: string }).message || "Failed to update task progress.";
+      toast.error(message);
+      return false;
+    } finally {
+      setProgressUpdatingId(null);
     }
   };
 
@@ -130,22 +151,52 @@ export default function MemberDashboard() {
   return (
     <div className="space-y-8 animate-fade-in">
       {/* ── Stats ─────────────────────────────────────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        {[
-          { label: "Total", value: tasks.length, color: "from-indigo-500 to-indigo-700", icon: "📊" },
-          { label: "Pending", value: tasks.filter(t => t.status === "Pending").length, color: "from-amber-500 to-amber-700", icon: "⏳" },
-          { label: "In Progress", value: tasks.filter(t => t.status === "In-Progress").length, color: "from-blue-500 to-blue-700", icon: "🔄" },
-          { label: "Overdue", value: overdueCount, color: "from-red-500 to-red-700", icon: "⚠" },
-        ].map((s) => (
-          <div key={s.label} className="rounded-2xl p-4 flex items-center gap-3 border t-border-subtle t-bg-card transition-colors light-shadow">
-            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${s.color} flex items-center justify-center text-white font-bold shadow-lg text-sm`}>{s.icon}</div>
-            <div>
-              <p className="text-lg font-bold t-text-primary">{s.value}</p>
-              <p className="text-xs t-text-muted">{s.label}</p>
-            </div>
-          </div>
-        ))}
+
+     {/* Stats */}
+<div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+  {[
+    {
+      label: "Total",
+      value: tasks.length,
+      color: "from-indigo-500 to-indigo-700",
+      icon: "📊",
+    },
+    {
+      label: "Pending",
+      value: tasks.filter((t) => t.status === "Pending").length,
+      color: "from-amber-500 to-amber-700",
+      icon: "⏳",
+    },
+    {
+      label: "In Progress",
+      value: tasks.filter((t) => t.status === "In-Progress").length,
+      color: "from-blue-500 to-blue-700",
+      icon: "🔄",
+    },
+    {
+      label: "Overdue",
+      value: overdueCount,
+      color: "from-red-500 to-red-700",
+      icon: "⚠",
+    },
+  ].map((s) => (
+    <div
+      key={s.label}
+      className="rounded-2xl p-4 flex items-center gap-3 border border-gray-200 bg-white transition-colors light-shadow"
+    >
+      <div
+        className={`w-10 h-10 rounded-xl bg-linear-to-br ${s.color} flex items-center justify-center text-white font-bold shadow-lg text-sm`}
+      >
+        {s.icon}
       </div>
+
+      <div>
+        <p className="text-lg font-bold text-slate-900">{s.value}</p>
+        <p className="text-xs text-slate-600">{s.label}</p>
+      </div>
+    </div>
+  ))}
+</div>
 
       {overdueCount > 0 && (
         <div className="rounded-xl px-5 py-3 text-sm font-bold bg-red-500/10 text-red-500 border border-red-500/20 animate-pulse">
@@ -158,16 +209,18 @@ export default function MemberDashboard() {
 
       {/* ── Tasks Table ────────────────────────────────────────────────────── */}
       <section>
-        <h2 className="text-xl font-bold t-text-primary mb-4">My Assigned Tasks</h2>
+        <h2 className="text-xl font-bold text-black mb-4">My Assigned Tasks</h2>
         {tasks.length === 0 ? (
-          <div className="text-center py-16 t-bg-card rounded-2xl border t-border-subtle">
-            <p className="text-4xl mb-3">📋</p>
-            <p className="t-text-muted text-sm">No tasks assigned to you yet.</p>
-          </div>
+        <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
+  <p className="text-4xl mb-3">📋</p>
+  <p className="text-slate-600 text-sm">
+    No tasks assigned to you yet.
+  </p>
+</div>
         ) : (
           <div className="rounded-2xl border t-border-subtle t-bg-card overflow-hidden shadow-sm">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse min-w-[800px]">
+              <table className="w-full text-left border-collapse min-w-200">
                 <thead>
                   <tr className="border-b t-border-subtle t-text-muted text-[11px] uppercase tracking-wider font-bold bg-zinc-500/5">
                     <th className="px-6 py-4">ID</th>
@@ -175,6 +228,7 @@ export default function MemberDashboard() {
                     <th className="px-6 py-4">Project</th>
                     <th className="px-6 py-4">Priority</th>
                     <th className="px-6 py-4">Status</th>
+                    <th className="px-6 py-4">Progress</th>
                     <th className="px-6 py-4">Due Date</th>
                     <th className="px-6 py-4 text-right">Actions</th>
                   </tr>
@@ -187,7 +241,7 @@ export default function MemberDashboard() {
                         <td className="px-6 py-4 text-xs font-mono t-text-muted">#{t.id}</td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col">
-                            <span className={`font-bold text-sm ${overdue ? "text-red-500" : "t-text-primary"}`}>{t.title}</span>
+                            <button type="button" onClick={() => setTimelineTaskId(t.id)} className={`text-left font-bold text-sm hover:underline ${overdue ? "text-red-500" : "t-text-primary"}`}>{t.title}</button>
                             {t.description && <span className="text-[11px] t-text-muted line-clamp-1">{t.description}</span>}
                           </div>
                         </td>
@@ -209,6 +263,10 @@ export default function MemberDashboard() {
                               <span className={`text-[10px] px-2 py-0.5 rounded-md border font-bold ${statusStyle[t.status]}`}>Completed</span>
                             )}
                           </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <TaskProgressControl progress={t.status === "Completed" ? 100 : t.progress || 0} status={t.status}
+                            disabled={progressUpdatingId === t.id} onSave={(progress) => handleProgressUpdate(t.id, progress)} size={42} />
                         </td>
                         <td className="px-6 py-4">
                           <div className={`flex flex-col ${overdue ? "text-red-500" : "t-text-muted"}`}>

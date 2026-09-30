@@ -1,111 +1,127 @@
-/**
- * Auth Middleware
- * 
- * Provides two middleware functions for route protection:
- *   - verifyToken:  Extracts JWT from the HTTP-Only cookie, verifies it,
- *                   and attaches the decoded user payload to `req.user`.
- *   - isAdmin:      Checks if the authenticated user has the 'Admin' role.
- * 
- * Usage in routes:
- *   router.get("/protected", verifyToken, someController);
- *   router.post("/admin-only", verifyToken, isAdmin, someController);
- */
-
 const jwt = require("jsonwebtoken");
 const appConfig = require("../config/app.config");
+const db = require("../models");
+const { can, normalizedRole } = require("../lib/rbac");
 
-// ─────────────────────────────────────────────────────────────────────────────
-// VERIFY TOKEN
-// ─────────────────────────────────────────────────────────────────────────────
+const verifyToken = async (req, res, next) => {
+  const token =
+    req.cookies?.token ||
+    (req.headers.authorization?.startsWith("Bearer ")
+      ? req.headers.authorization.slice("Bearer ".length)
+      : null);
 
-/**
- * @desc    Extracts the JWT from the `token` cookie, verifies it,
- *          and attaches the decoded payload to req.user.
- * @usage   Applied as middleware before any protected route.
- */
-const verifyToken = (req, res, next) => {
+  if (!token) {
+    return res.status(401).json({
+      ok: false,
+      error: { code: "UNAUTHENTICATED", message: "Authentication is required." },
+      success: false,
+      message: "Authentication is required.",
+    });
+  }
+
+  let decoded;
   try {
-    // ── Extract token from cookies or Authorization header ─────────────────
-    let token = req.cookies?.token;
-    if (!token && req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
-      token = req.headers.authorization.split(" ")[1];
-    }
-
-    if (!token) {
-      return res.status(401).json({
-        success: false,
-        message: "Access denied. No authentication token provided.",
-      });
-    }
-
-    // ── Verify and decode the token ─────────────────────────────────────
-    const decoded = jwt.verify(token, appConfig.JWT_SECRET);
-
-    // ── Attach user payload to request object ───────────────────────────
-    // decoded contains: { id, email, role, iat, exp }
-    req.user = decoded;
-
-    next();
+    decoded = jwt.verify(token, appConfig.JWT_SECRET);
   } catch (error) {
-    // Handle specific JWT errors
-    if (error.name === "TokenExpiredError") {
-      return res.status(401).json({
-        success: false,
-        message: "Authentication token has expired. Please log in again.",
-      });
-    }
+    const expired = error.name === "TokenExpiredError";
+    return res.status(expired ? 401 : 403).json({
+      ok: false,
+      error: {
+        code: expired ? "TOKEN_EXPIRED" : "INVALID_TOKEN",
+        message: expired ? "Your session has expired." : "Invalid authentication token.",
+      },
+      success: false,
+      message: expired ? "Your session has expired." : "Invalid authentication token.",
+    });
+  }
 
-    if (error.name === "JsonWebTokenError") {
+  try {
+    const payload = typeof decoded === "object" && decoded !== null ? decoded : {};
+    const userId = Number(payload.sub ?? payload.id);
+    if (!Number.isSafeInteger(userId) || userId < 1) {
       return res.status(403).json({
+        ok: false,
+        error: { code: "INVALID_TOKEN", message: "Invalid authentication token." },
         success: false,
         message: "Invalid authentication token.",
       });
     }
 
-    console.error("❌ Token Verification Error:", error.message);
+    const user = await db.User.findByPk(userId, {
+      attributes: ["id", "name", "email", "role", "status", "createdById"],
+    });
+    if (!user || user.status !== "ACTIVE") {
+      return res.status(401).json({
+        ok: false,
+        error: { code: "INACTIVE_ACCOUNT", message: "This account is unavailable." },
+        success: false,
+        message: "This account is unavailable.",
+      });
+    }
+
+    const role = await db.Role.findOne({
+      where: { name: user.role, isActive: true },
+      include: [
+        {
+          model: db.Permission,
+          as: "permissions",
+          attributes: ["name"],
+          through: { attributes: [] },
+        },
+      ],
+    });
+    if (!role) {
+      return res.status(403).json({
+        ok: false,
+        error: { code: "ROLE_DISABLED", message: "This account role is not active." },
+        success: false,
+        message: "This account role is not active.",
+      });
+    }
+
+    req.user = {
+      ...user.get({ plain: true }),
+      role: normalizedRole(user.role),
+      permissions: role.permissions.map((permission) => permission.name),
+    };
+    return next();
+  } catch (error) {
+    console.error("Authentication lookup failed:", error);
     return res.status(500).json({
+      ok: false,
+      error: { code: "AUTHENTICATION_ERROR", message: "Unable to verify the session." },
       success: false,
-      message: "Internal server error during authentication.",
+      message: "Unable to verify the session.",
     });
   }
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// IS ADMIN
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * @desc    Checks if the authenticated user has the 'Admin' role.
- *          Must be used AFTER verifyToken middleware.
- * @usage   router.post("/admin-action", verifyToken, isAdmin, controller);
- */
-const isAdmin = (req, res, next) => {
-  try {
+function requirePermission(...permissions) {
+  if (permissions.length === 0) {
+    throw new Error("requirePermission needs at least one permission.");
+  }
+  return (req, res, next) => {
     if (!req.user) {
       return res.status(401).json({
+        ok: false,
+        error: { code: "UNAUTHENTICATED", message: "Authentication is required." },
         success: false,
-        message: "Access denied. User not authenticated.",
+        message: "Authentication is required.",
       });
     }
-
-    if (req.user.role !== "Admin") {
+    if (!permissions.some((permission) => can(req.user, permission))) {
       return res.status(403).json({
+        ok: false,
+        error: { code: "FORBIDDEN", message: "You do not have permission to perform this action." },
         success: false,
-        message: "Forbidden. Admin access required.",
+        message: "You do not have permission to perform this action.",
       });
     }
-
-    next();
-  } catch (error) {
-    console.error("❌ Role Check Error:", error.message);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error during authorization.",
-    });
-  }
-};
+    return next();
+  };
+}
 
 module.exports = {
   verifyToken,
-  isAdmin,
+  requirePermission,
 };

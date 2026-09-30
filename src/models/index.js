@@ -37,6 +37,11 @@ db.TaskHistory = require("./taskHistory.model")(sequelize);
 db.Ticket = require("./ticket.model")(sequelize);
 db.TicketComment = require("./ticketComment.model")(sequelize);
 db.TicketHistory = require("./ticketHistory.model")(sequelize);
+db.TicketAttachment = require("./ticketAttachment.model")(sequelize);
+db.Notification = require("./notification.model")(sequelize);
+db.Role = require("./role.model")(sequelize);
+db.Permission = require("./permission.model")(sequelize);
+db.RolePermission = require("./rolePermission.model")(sequelize);
 
 // ─── 3. Define Associations ─────────────────────────────────────────────────
 
@@ -53,6 +58,15 @@ db.User.hasMany(db.Project, {
   as: "projects",           // User.getProjects(), include: { as: "projects" }
   onDelete: "CASCADE",      // If user is deleted, delete their projects too
   onUpdate: "CASCADE",
+});
+
+db.User.belongsTo(db.User, {
+  foreignKey: "createdById",
+  as: "createdByUser",
+});
+db.User.hasMany(db.User, {
+  foreignKey: "createdById",
+  as: "managedUsers",
 });
 
 db.Project.belongsTo(db.User, {
@@ -98,6 +112,38 @@ db.User.hasMany(db.Task, {
 db.Task.belongsTo(db.User, {
   foreignKey: "assignedTo",
   as: "assignee",           // Task.getAssignee(), include: { as: "assignee" }
+});
+
+db.User.hasMany(db.Task, {
+  foreignKey: "assignedById",
+  as: "assignedTasksByUser",
+});
+db.Task.belongsTo(db.User, {
+  foreignKey: "assignedById",
+  as: "assignedByUser",
+});
+
+db.Role.belongsToMany(db.Permission, {
+  through: db.RolePermission,
+  foreignKey: "roleId",
+  otherKey: "permissionId",
+  as: "permissions",
+});
+db.Permission.belongsToMany(db.Role, {
+  through: db.RolePermission,
+  foreignKey: "permissionId",
+  otherKey: "roleId",
+  as: "roles",
+});
+db.Role.hasMany(db.RolePermission, { foreignKey: "roleId", as: "roleGrants" });
+db.RolePermission.belongsTo(db.Role, { foreignKey: "roleId", as: "role" });
+db.Permission.hasMany(db.RolePermission, {
+  foreignKey: "permissionId",
+  as: "permissionGrants",
+});
+db.RolePermission.belongsTo(db.Permission, {
+  foreignKey: "permissionId",
+  as: "permission",
 });
 
 /**
@@ -204,6 +250,20 @@ db.TicketHistory.belongsTo(db.User, {
   foreignKey: "changedBy",
   as: "changedByUser",
 });
+db.Ticket.belongsTo(db.User, { foreignKey: "resolvedBy", as: "resolver" });
+db.User.hasMany(db.Ticket, { foreignKey: "resolvedBy", as: "resolvedTickets" });
+db.Ticket.belongsTo(db.Project, { foreignKey: "projectId", as: "project" });
+db.Ticket.belongsTo(db.Task, { foreignKey: "taskId", as: "relatedTask" });
+
+db.Ticket.hasMany(db.TicketAttachment, {
+  foreignKey: "ticketId",
+  as: "attachments",
+  onDelete: "CASCADE",
+});
+db.TicketAttachment.belongsTo(db.Ticket, { foreignKey: "ticketId", as: "ticket" });
+db.TicketAttachment.belongsTo(db.User, { foreignKey: "uploadedBy", as: "uploader" });
+db.User.hasMany(db.TicketAttachment, { foreignKey: "uploadedBy", as: "ticketAttachments" });
+db.User.hasMany(db.Notification, { foreignKey: "userId", as: "notifications", onDelete: "CASCADE" });
+db.Notification.belongsTo(db.User, { foreignKey: "userId", as: "user" });
 
 module.exports = db;
-

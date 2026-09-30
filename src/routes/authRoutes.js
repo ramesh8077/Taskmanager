@@ -12,11 +12,25 @@ const express = require("express");
 const router = express.Router();
 const authController = require("../controllers/authController");
 const { verifyToken } = require("../middlewares/authMiddleware");
+const { rateLimit } = require("express-rate-limit");
+const { validateRequest } = require("../middlewares/validate");
+const { loginBody, registerBody } = require("../validators/schemas");
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: "draft-8",
+  legacyHeaders: false,
+  message: {
+    ok: false,
+    error: { code: "RATE_LIMITED", message: "Too many login attempts. Try again later." },
+  },
+});
 
 // ─── Public Routes (No authentication required) ─────────────────────────────
 
-router.post("/register", authController.register);
-router.post("/login", authController.login);
+router.post("/register", validateRequest(registerBody), authController.register);
+router.post("/login", loginLimiter, validateRequest(loginBody), authController.login);
 router.post("/logout", authController.logout);
 
 // ─── Protected Routes ───────────────────────────────────────────────────────

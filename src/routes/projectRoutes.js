@@ -9,11 +9,31 @@
 const express = require("express");
 const router = express.Router();
 const projectController = require("../controllers/projectController");
-const { verifyToken, isAdmin } = require("../middlewares/authMiddleware");
+const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
+const { validateRequest } = require("../middlewares/validate");
+const { createProjectBody, idParams } = require("../validators/schemas");
 
 // ─── Admin-only Routes ──────────────────────────────────────────────────────
 
-router.post("/", verifyToken, isAdmin, projectController.createProject);
-router.get("/", verifyToken, isAdmin, projectController.getAllProjects);
+router.post(
+  "/",
+  verifyToken,
+  requirePermission("project:create"),
+  validateRequest(createProjectBody),
+  projectController.createProject
+);
+router.get(
+  "/",
+  verifyToken,
+  requirePermission("project:view:any", "project:view:own"),
+  projectController.getAllProjects
+);
+router.get(
+  "/:id",
+  verifyToken,
+  requirePermission("project:view:any", "project:view:own"),
+  validateRequest(idParams, "params"),
+  projectController.getProject
+);
 
 module.exports = router;

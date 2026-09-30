@@ -17,7 +17,7 @@
   --color-brand-600: #4f46e5;
   --color-brand-700: #4338ca;
 
-  /* Surface tokens for dark UI */
+  /* Shared surface tokens */
   --color-surface-primary: var(--surface-primary);
   --color-surface-card: var(--surface-card);
   --color-surface-card-hover: var(--surface-card-hover);
@@ -30,9 +30,37 @@
   --color-border-focus: #6366f1;
 }
 
-/* ─── Dark Theme (Default) ────────────────────────────────────────────────── */
+/* ─── Light Theme (Default) ──────────────────────────────────────────────── */
 
 :root,
+html.light {
+  --background: #f3f7ff;
+  --foreground: #172033;
+  --surface-primary: #f3f7ff;
+  --surface-card: #ffffff;
+  --surface-card-hover: #f8faff;
+  --surface-input: #f8faff;
+  --surface-input-focus: #ffffff;
+  --border-subtle: #e5eaf3;
+  --border-default: #d6deeb;
+
+  --text-primary: #172033;
+  --text-secondary: #526176;
+  --text-muted: #64748b;
+  --text-label: #334155;
+
+  --nav-bg: rgba(255, 255, 255, 0.9);
+  --modal-bg: #ffffff;
+  --overlay-bg: rgba(15, 23, 42, 0.36);
+
+  --scrollbar-thumb: rgba(71, 85, 105, 0.22);
+  --scrollbar-thumb-hover: rgba(71, 85, 105, 0.36);
+
+  --card-text: #172033;
+}
+
+/* ─── Optional Dark Theme ────────────────────────────────────────────────── */
+
 html.dark {
   --background: #0a0a12;
   --foreground: #e2e8f0;
@@ -43,52 +71,16 @@ html.dark {
   --surface-input-focus: rgba(255, 255, 255, 0.08);
   --border-subtle: rgba(255, 255, 255, 0.08);
   --border-default: rgba(255, 255, 255, 0.12);
-
-  /* Theme-specific text colors */
   --text-primary: #ffffff;
   --text-secondary: #94a3b8;
-  --text-muted: #64748b;
+  --text-muted: #94a3b8;
   --text-label: #cbd5e1;
-
-  /* Nav / modals */
-  --nav-bg: rgba(255, 255, 255, 0.03);
+  --nav-bg: rgba(15, 23, 42, 0.88);
   --modal-bg: #12121f;
   --overlay-bg: rgba(0, 0, 0, 0.6);
-
-  /* Scrollbar */
   --scrollbar-thumb: rgba(255, 255, 255, 0.12);
   --scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
-
-  /* Stat card gradient overlay */
   --card-text: #ffffff;
-}
-
-/* ─── Light Theme ─────────────────────────────────────────────────────────── */
-
-html.light {
-  --background: #f8fafc;
-  --foreground: #1e293b;
-  --surface-primary: #f8fafc;
-  --surface-card: rgba(255, 255, 255, 0.85);
-  --surface-card-hover: rgba(255, 255, 255, 0.95);
-  --surface-input: rgba(0, 0, 0, 0.04);
-  --surface-input-focus: rgba(0, 0, 0, 0.06);
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --border-default: rgba(0, 0, 0, 0.12);
-
-  --text-primary: #1e293b;
-  --text-secondary: #475569;
-  --text-muted: #94a3b8;
-  --text-label: #334155;
-
-  --nav-bg: rgba(255, 255, 255, 0.8);
-  --modal-bg: #ffffff;
-  --overlay-bg: rgba(0, 0, 0, 0.3);
-
-  --scrollbar-thumb: rgba(0, 0, 0, 0.12);
-  --scrollbar-thumb-hover: rgba(0, 0, 0, 0.25);
-
-  --card-text: #1e293b;
 }
 
 /* ─── Global Resets ───────────────────────────────────────────────────────── */

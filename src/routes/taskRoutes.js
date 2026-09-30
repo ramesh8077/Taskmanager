@@ -2,27 +2,76 @@
  * Task Routes
  * 
  * Mixed access routes with RBAC enforced at controller level:
- *   POST /api/tasks              → Create a task (Admin only)
- *   GET  /api/tasks              → Get tasks (Admin: all, Member: own) with filtering/search/sort
- *   PUT  /api/tasks/:id/status   → Update task status (Admin or assigned Member)
- *   PUT  /api/tasks/:id/priority → Update task priority (Admin only)
- *   GET  /api/tasks/:id/history  → Get task timeline/history (Admin or assigned Member)
+ *   POST /api/tasks              → Create a task with task:create permission
+ *   GET  /api/tasks              → List tasks in the caller's scope
+ *   PUT  /api/tasks/:id/status   → Update a scoped task
+ *   PUT  /api/tasks/:id/priority → Update a scoped task
+ *   GET  /api/tasks/:id/history  → Get history for a scoped task
  */
 
 const express = require("express");
 const router = express.Router();
 const taskController = require("../controllers/taskController");
-const { verifyToken, isAdmin } = require("../middlewares/authMiddleware");
+const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
+const { validateRequest } = require("../middlewares/validate");
+const {
+  createTaskBody,
+  taskStatusBody,
+  taskPriorityBody,
+  taskProgressBody,
+  taskQuery,
+  idParams,
+} = require("../validators/schemas");
 
-// ─── Admin-only Route ───────────────────────────────────────────────────────
+// ─── Task creation ──────────────────────────────────────────────────────────
 
-router.post("/", verifyToken, isAdmin, taskController.createTask);
+router.post(
+  "/",
+  verifyToken,
+  requirePermission("task:create"),
+  validateRequest(createTaskBody),
+  taskController.createTask
+);
 
-// ─── Authenticated Routes (RBAC logic handled in controller) ────────────────
+// ─── Scoped, permission-guarded routes ─────────────────────────────────────
 
-router.get("/", verifyToken, taskController.getTasks);
-router.put("/:id/status", verifyToken, taskController.updateStatus);
-router.put("/:id/priority", verifyToken, isAdmin, taskController.updatePriority);
-router.get("/:id/history", verifyToken, taskController.getTaskHistory);
+router.get(
+  "/",
+  verifyToken,
+  requirePermission("task:view:any", "task:view:own"),
+  validateRequest(taskQuery, "query"),
+  taskController.getTasks
+);
+router.put(
+  "/:id/status",
+  verifyToken,
+  requirePermission("task:update:any", "task:update:own"),
+  validateRequest(idParams, "params"),
+  validateRequest(taskStatusBody),
+  taskController.updateStatus
+);
+router.put(
+  "/:id/priority",
+  verifyToken,
+  requirePermission("task:update:any", "task:update:own"),
+  validateRequest(idParams, "params"),
+  validateRequest(taskPriorityBody),
+  taskController.updatePriority
+);
+router.put(
+  "/:id/progress",
+  verifyToken,
+  requirePermission("task:update:any", "task:update:own"),
+  validateRequest(idParams, "params"),
+  validateRequest(taskProgressBody),
+  taskController.updateProgress
+);
+router.get(
+  "/:id/history",
+  verifyToken,
+  requirePermission("task:view:any", "task:view:own"),
+  validateRequest(idParams, "params"),
+  taskController.getTaskHistory
+);
 
 module.exports = router;

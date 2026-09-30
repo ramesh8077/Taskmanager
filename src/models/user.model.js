@@ -2,9 +2,7 @@
  * User Model
  * 
  * Represents a user of the Team Task Manager application.
- * Users can be either 'Admin' or 'Member'.
- * - Admins can create projects and assign tasks.
- * - Members can be assigned to tasks within projects.
+ * User roles are seeded from the Role and Permission tables.
  */
 
 const { DataTypes } = require("sequelize");
@@ -60,15 +58,26 @@ module.exports = (sequelize) => {
         },
       },
       role: {
-        type: DataTypes.ENUM("Admin", "Member"),
+        type: DataTypes.ENUM("SUPER_ADMIN", "ADMIN", "MANAGER", "EMPLOYEE"),
         allowNull: false,
-        defaultValue: "Member",
-        validate: {
-          isIn: {
-            args: [["Admin", "Member"]],
-            msg: "Role must be either 'Admin' or 'Member'.",
-          },
+        defaultValue: "EMPLOYEE",
+      },
+      status: {
+        type: DataTypes.ENUM("ACTIVE", "INACTIVE"),
+        allowNull: false,
+        defaultValue: "ACTIVE",
+      },
+      createdById: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "users",
+          key: "id",
         },
+      },
+      lastLoginAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
       },
     },
     {

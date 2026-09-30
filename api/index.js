@@ -16,6 +16,7 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
+const appConfig = require("../src/config/app.config");
 
 // ─── Import Routes ──────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ const ticketRoutes = require("../src/routes/ticketRoutes");
 // ─── Import Database ────────────────────────────────────────────────────────
 
 const db = require("../src/models");
+const apiResponse = require("../src/middlewares/apiResponse");
 
 // ─── Initialize Express App ─────────────────────────────────────────────────
 
@@ -38,7 +40,12 @@ app.set("trust proxy", 1);
 
 app.use(
   cors({
-    origin: true,
+    origin(origin, callback) {
+      if (!origin || appConfig.CORS_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error("Origin is not allowed by CORS."));
+    },
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
@@ -48,6 +55,7 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
+app.use(apiResponse);
 
 // ─── Database Singleton (one-time init per cold start) ──────────────────────
 
@@ -57,7 +65,22 @@ function ensureDB() {
   if (!dbReady) {
     dbReady = db.sequelize
       .authenticate()
-      .then(() => console.log("✅ DB connected on Vercel"))
+      .then(async () => {
+        if (!appConfig.JWT_SECRET || appConfig.JWT_SECRET.length < 32) {
+          throw new Error("JWT_SECRET must contain at least 32 characters.");
+        }
+        const [migrationRows] = await db.sequelize.query(
+          "SELECT `migration_name` FROM `schema_migrations`"
+        );
+        if (
+          !migrationRows.some(
+            (row) => row.migration_name === "202609280001-rbac-foundation.js"
+          )
+        ) {
+          throw new Error("Database migrations are missing.");
+        }
+        console.log("✅ DB connected and migrations checked on Vercel");
+      })
       .catch((err) => {
         console.error("❌ DB connection failed:", err.message);
         dbReady = null; // Reset so next request retries
@@ -74,17 +97,10 @@ app.use(async (req, res, next) => {
     next();
   } catch (err) {
     res.status(500).json({
+      ok: false,
+      error: { code: "DATABASE_UNAVAILABLE", message: "The API is temporarily unavailable." },
       success: false,
-      message: "Database connection failed. Please check environment variables.",
-      error: err.message,
-      debug: {
-        nodeEnv: process.env.NODE_ENV,
-        DB_HOST: process.env.DB_HOST || "(not set)",
-        DB_PORT: process.env.DB_PORT || "(not set)",
-        DB_USER: process.env.DB_USER || "(not set)",
-        DB_NAME: process.env.DB_NAME || "(not set)",
-        DB_PASSWORD_LENGTH: (process.env.DB_PASSWORD || "").length,
-      },
+      message: "The API is temporarily unavailable.",
     });
   }
 });
@@ -113,6 +129,17 @@ app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: `API route ${req.originalUrl} not found.`,
+  });
+});
+
+app.use((error, req, res, next) => {
+  console.error("Request middleware failed:", error);
+  if (res.headersSent) return next(error);
+  return res.status(500).json({
+    ok: false,
+    error: { code: "REQUEST_FAILED", message: "The request could not be completed." },
+    success: false,
+    message: "The request could not be completed.",
   });
 });
 

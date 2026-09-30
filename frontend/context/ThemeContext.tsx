@@ -28,26 +28,15 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [theme, setTheme] = useState<Theme>("dark");
-  const [mounted, setMounted] = useState(false);
-
-  // Restore saved theme from localStorage on mount
-  useEffect(() => {
-    const savedTheme = localStorage.getItem("ttm-theme") as Theme | null;
-    if (savedTheme && (savedTheme === "dark" || savedTheme === "light")) {
-      setTheme(savedTheme);
-    }
-    setMounted(true);
-  }, []);
+  const [theme, setTheme] = useState<Theme>("light");
 
   // Apply theme class to <html> element
   useEffect(() => {
-    if (!mounted) return;
     const root = document.documentElement;
     root.classList.remove("dark", "light");
     root.classList.add(theme);
     localStorage.setItem("ttm-theme", theme);
-  }, [theme, mounted]);
+  }, [theme]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => (prev === "dark" ? "light" : "dark"));

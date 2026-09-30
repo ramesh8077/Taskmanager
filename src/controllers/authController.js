@@ -25,8 +25,8 @@ const SALT_ROUNDS = 12;
 // ─── Cookie configuration ───────────────────────────────────────────────────
 const COOKIE_OPTIONS = {
     httpOnly: true,
-    secure: true, 
-    sameSite: "none", 
+    secure: appConfig.NODE_ENV === "production",
+    sameSite: "lax",
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
 };
 
@@ -41,7 +41,7 @@ const COOKIE_OPTIONS = {
  */
 const register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password } = req.body;
 
     // ── Validate required fields ──────────────────────────────────────────
     if (!name || !email || !password) {
@@ -69,7 +69,8 @@ const register = async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      role: role || "Member", // Default to 'Member' if not provided
+      role: "EMPLOYEE",
+      status: "ACTIVE",
     });
 
     // ── Return user data (exclude password) ───────────────────────────────
@@ -143,6 +144,13 @@ const login = async (req, res) => {
       });
     }
 
+    if (user.status !== "ACTIVE") {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid email or password.",
+      });
+    }
+
     // ── Verify password ───────────────────────────────────────────────────
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
@@ -153,16 +161,32 @@ const login = async (req, res) => {
       });
     }
 
+    const role = await db.Role.findOne({
+      where: { name: user.role, isActive: true },
+      include: [
+        {
+          model: db.Permission,
+          as: "permissions",
+          attributes: ["name"],
+          through: { attributes: [] },
+        },
+      ],
+    });
+    if (!role) {
+      return res.status(403).json({
+        success: false,
+        message: "This account role is not active.",
+      });
+    }
+
     // ── Generate JWT ──────────────────────────────────────────────────────
-    const tokenPayload = {
-      id: user.id,
-      email: user.email,
-      role: user.role,
-    };
+    const tokenPayload = { sub: String(user.id) };
 
     const token = jwt.sign(tokenPayload, appConfig.JWT_SECRET, {
       expiresIn: appConfig.JWT_EXPIRES_IN,
     });
+    user.lastLoginAt = new Date();
+    await user.save();
 
     // ── Set JWT in HTTP-Only cookie ───────────────────────────────────────
     res.cookie("token", token, COOKIE_OPTIONS);
@@ -173,12 +197,12 @@ const login = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      permissions: role.permissions.map((permission) => permission.name),
     };
 
     return res.status(200).json({
       success: true,
       message: "Login successful.",
-      token: token,
       data: { user: userData },
     });
   } catch (error) {
@@ -203,9 +227,7 @@ const logout = async (req, res) => {
   try {
     // Clear the token cookie by setting maxAge to 0
     res.cookie("token", "", {
-      httpOnly: true,
-      secure: true,
-      sameSite: "none",
+      ...COOKIE_OPTIONS,
       maxAge: 0, // Expire immediately
     });
 
@@ -248,7 +270,7 @@ const getMe = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Authenticated user fetched successfully.",
-      data: { user },
+      data: { user: { ...user.get({ plain: true }), permissions: req.user.permissions } },
     });
   } catch (error) {
     console.error("❌ Get Me Error:", error.message);
