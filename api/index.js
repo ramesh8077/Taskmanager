@@ -14,7 +14,42 @@ require("mysql2");
 require("dotenv").config();
 
 const express = require("express");
+
+// ─── CORS Middleware ────────────────────────────────────────────────────────
 const cors = require("cors");
+
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  process.env.CLIENT_URL,
+  "http://localhost:3000",
+  "http://localhost:3001",
+]
+  .filter(Boolean)
+  .map((url) => url.trim().replace(/\/$/, ""));
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow requests without an Origin header
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      const normalizedOrigin = origin.replace(/\/$/, "");
+
+      if (allowedOrigins.includes(normalizedOrigin)) {
+        return callback(null, true);
+      }
+
+      console.error("Blocked CORS origin:", origin);
+      return callback(new Error("Origin is not allowed by CORS."));
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
 const cookieParser = require("cookie-parser");
 const appConfig = require("../src/config/app.config");
 
