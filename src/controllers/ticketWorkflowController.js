@@ -487,7 +487,12 @@ async function addComment(req, res) {
   }
 }
 
-const attachmentStorage = path.resolve(process.env.TICKET_ATTACHMENT_DIR || path.join(process.cwd(), "storage", "ticket-attachments"));
+const isServerless = Boolean(process.env.VERCEL) || process.env.NODE_ENV === "production";
+// Serverless /tmp storage is temporary and is not shared between requests or deployments.
+// Production should use persistent cloud storage such as Cloudinary, S3, or Vercel Blob.
+const attachmentStorage = isServerless
+  ? path.join("/tmp", "ticket-attachments")
+  : path.resolve(process.env.TICKET_ATTACHMENT_DIR || path.join(process.cwd(), "storage", "ticket-attachments"));
 function isPlainTextFile(buffer) {
   try {
     const text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);

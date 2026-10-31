@@ -23,8 +23,12 @@ const {
   ticketQuery,
 } = require("../validators/schemas");
 
-const uploadDirectory = workflowController.attachmentStorage;
-fs.mkdirSync(uploadDirectory, { recursive: true });
+const uploadDir = workflowController.attachmentStorage;
+try {
+  fs.mkdirSync(uploadDir, { recursive: true });
+} catch (error) {
+  console.error("Unable to initialize ticket attachment directory:", error.message);
+}
 const allowedFiles = new Map([
   ["image/jpeg", ".jpg"],
   ["image/png", ".png"],
@@ -35,7 +39,7 @@ const allowedFiles = new Map([
 ]);
 const upload = multer({
   storage: multer.diskStorage({
-    destination: uploadDirectory,
+    destination: uploadDir,
     filename: (_req, file, callback) => callback(null, `${randomUUID()}${allowedFiles.get(file.mimetype) || ""}`),
   }),
   limits: { fileSize: 8 * 1024 * 1024, files: 1 },
