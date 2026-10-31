@@ -24,11 +24,10 @@ const {
 } = require("../validators/schemas");
 
 const uploadDir = workflowController.attachmentStorage;
-try {
-  fs.mkdirSync(uploadDir, { recursive: true });
-} catch (error) {
-  console.error("Unable to initialize ticket attachment directory:", error.message);
-}
+
+// Ensure the upload directory exists
+
+
 const allowedFiles = new Map([
   ["image/jpeg", ".jpg"],
   ["image/png", ".png"],
@@ -37,19 +36,45 @@ const allowedFiles = new Map([
   ["application/pdf", ".pdf"],
   ["text/plain", ".txt"],
 ]);
+// const upload = multer({
+//   storage: multer.diskStorage({
+//     destination: uploadDir,
+//     filename: (_req, file, callback) => callback(null, `${randomUUID()}${allowedFiles.get(file.mimetype) || ""}`),
+//   }),
+//   limits: { fileSize: 8 * 1024 * 1024, files: 1 },
+//   fileFilter: (_req, file, callback) => {
+//     if (!allowedFiles.has(file.mimetype)) {
+//       return callback(new Error("Unsupported file type. Upload a JPG, PNG, GIF, WebP, PDF, or plain text file."));
+//     }
+//     return callback(null, true);
+//   },
+// });
+
 const upload = multer({
   storage: multer.diskStorage({
-    destination: uploadDir,
-    filename: (_req, file, callback) => callback(null, `${randomUUID()}${allowedFiles.get(file.mimetype) || ""}`),
+    destination: (_req, _file, callback) => {
+      fs.mkdir(uploadDir, { recursive: true }, (error) => {
+        callback(error, uploadDir);
+      });
+    },
+    filename: (_req, file, callback) => {
+      callback(
+        null,
+        `${randomUUID()}${allowedFiles.get(file.mimetype) || ""}`
+      );
+    },
   }),
   limits: { fileSize: 8 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) => {
     if (!allowedFiles.has(file.mimetype)) {
-      return callback(new Error("Unsupported file type. Upload a JPG, PNG, GIF, WebP, PDF, or plain text file."));
+      return callback(
+        new Error("Unsupported file type. Upload a JPG, PNG, GIF, WebP, PDF, or plain text file.")
+      );
     }
     return callback(null, true);
   },
 });
+
 const handleUpload = (req, res, next) => {
   upload.single("file")(req, res, (error) => {
     if (!error) return next();
