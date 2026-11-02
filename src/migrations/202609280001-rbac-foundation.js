@@ -8,7 +8,29 @@ const tableNames = async (queryInterface) =>
 const ensureColumn = async (queryInterface, table, name, definition) => {
   const columns = await queryInterface.describeTable(table);
   if (!columns[name]) {
-    await queryInterface.addColumn(table, name, definition);
+    const { references, onDelete, onUpdate, ...columnDefinition } = definition;
+    await queryInterface.addColumn(table, name, columnDefinition);
+  }
+  const { references, onDelete, onUpdate } = definition;
+  if (!references) return;
+
+  const foreignKeys = await queryInterface.getForeignKeyReferencesForTable(table);
+  if (
+    !foreignKeys.some(
+      (foreignKey) =>
+        foreignKey.columnName === name &&
+        foreignKey.referencedTableName === references.model &&
+        foreignKey.referencedColumnName === references.key
+    )
+  ) {
+    await queryInterface.addConstraint(table, {
+      fields: [name],
+      type: "foreign key",
+      name: `${table}_${name}_foreign_idx`,
+      references: { table: references.model, field: references.key },
+      onDelete,
+      onUpdate,
+    });
   }
 };
 

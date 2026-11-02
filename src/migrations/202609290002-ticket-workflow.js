@@ -2,7 +2,31 @@ const { DataTypes } = require("sequelize");
 
 async function ensureColumn(queryInterface, name, definition) {
   const columns = await queryInterface.describeTable("tickets");
-  if (!columns[name]) await queryInterface.addColumn("tickets", name, definition);
+  if (!columns[name]) {
+    const { references, onDelete, onUpdate, ...columnDefinition } = definition;
+    await queryInterface.addColumn("tickets", name, columnDefinition);
+  }
+  const { references, onDelete, onUpdate } = definition;
+  if (!references) return;
+
+  const foreignKeys = await queryInterface.getForeignKeyReferencesForTable("tickets");
+  if (
+    !foreignKeys.some(
+      (foreignKey) =>
+        foreignKey.columnName === name &&
+        foreignKey.referencedTableName === references.model &&
+        foreignKey.referencedColumnName === references.key
+    )
+  ) {
+    await queryInterface.addConstraint("tickets", {
+      fields: [name],
+      type: "foreign key",
+      name: `tickets_${name}_foreign_idx`,
+      references: { table: references.model, field: references.key },
+      onDelete,
+      onUpdate,
+    });
+  }
 }
 
 async function ensureIndex(queryInterface, table, fields, name, unique = false) {
