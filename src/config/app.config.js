@@ -12,9 +12,16 @@ module.exports = {
   JWT_SECRET: process.env.JWT_SECRET || "",
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || "7d",
 
-  // Comma-separated exact origins. Credentialed requests never allow "*".
-  CORS_ORIGINS: (process.env.CORS_ORIGIN || "http://localhost:3000")
-    .split(",")
-    .map((origin) => origin.trim())
+  // Exact origins only. Credentialed requests never allow "*".
+  CORS_ORIGINS: [
+    process.env.CORS_ORIGIN,
+    process.env.FRONTEND_URL,
+    process.env.CLIENT_URL,
+    "http://localhost:3000",
+    "http://localhost:3001",
+  ]
+    .filter(Boolean)
+    .flatMap((origins) => origins.split(","))
+    .map((origin) => origin.trim().replace(/\/+$/, ""))
     .filter(Boolean),
 };

@@ -8,10 +8,14 @@ early navigation guard and is not an authorization boundary.
 
 ### Database and initial administrator
 
-1. Configure the MySQL and JWT environment variables in `.env`. `JWT_SECRET`
-   must be a unique random value of at least 32 characters. Set `CORS_ORIGIN`
-   to the exact frontend origin (or a comma-separated list); wildcard origins
-   are intentionally rejected for credentialed requests.
+1. Configure the MySQL and JWT environment variables in `.env`. Remote
+   database connections use TLS by default; set `DB_SSL=true` to require TLS
+   explicitly or `DB_SSL=false` only for a trusted database that does not
+   support TLS. `JWT_SECRET` must be a unique random value of at least 32
+   characters. Set `CORS_ORIGIN` to the exact frontend origin (or a
+   comma-separated list); wildcard origins are intentionally rejected for
+   credentialed requests. Configure the same value in the deployment
+   environment, including the deployed frontend URL.
 2. Run `npm run db:migrate` against the existing Taskmanager database. It
    creates the new RBAC tables without altering existing columns, applies the
    versioned migration, maps legacy `Admin` and

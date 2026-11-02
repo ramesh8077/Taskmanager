@@ -7,8 +7,14 @@
 
 require("dotenv").config();
 
+const host = process.env.DB_HOST || "localhost";
+const sslEnabled =
+  process.env.DB_SSL === "true" ||
+  (process.env.DB_SSL !== "false" &&
+    !["localhost", "127.0.0.1", "::1"].includes(host));
+
 const dbConfig = {
-  HOST: process.env.DB_HOST || "localhost",
+  HOST: host,
   PORT: process.env.DB_PORT || 3306,
   USER: process.env.DB_USER || "root",
   PASSWORD: process.env.DB_PASSWORD || "",
@@ -23,16 +29,13 @@ const dbConfig = {
     idle: 10000,
   },
 
-  // dialectOptions: {
-  //   dateStrings: true,
-  //   typeCast: true,
-  //   ssl: {
-  //     minVersion: "TLSv1.2",
-  //     rejectUnauthorized: false,
-  //   },
-  // },
-
-  dialectOptions: {},
+  dialectOptions: sslEnabled
+    ? {
+        ssl: {
+          minVersion: "TLSv1.2",
+        },
+      }
+    : {},
 
   logging: process.env.NODE_ENV === "production" ? false : console.log,
 };
