@@ -39,6 +39,9 @@ db.TicketComment = require("./ticketComment.model")(sequelize);
 db.TicketHistory = require("./ticketHistory.model")(sequelize);
 db.TicketAttachment = require("./ticketAttachment.model")(sequelize);
 db.Notification = require("./notification.model")(sequelize);
+db.DeadlineHistory = require("./deadlineHistory.model")(sequelize);
+db.DeadlineExtensionRequest = require("./deadlineExtensionRequest.model")(sequelize);
+db.ActivityLog = require("./activityLog.model")(sequelize);
 db.Role = require("./role.model")(sequelize);
 db.Permission = require("./permission.model")(sequelize);
 db.RolePermission = require("./rolePermission.model")(sequelize);
@@ -64,9 +67,17 @@ db.User.belongsTo(db.User, {
   foreignKey: "createdById",
   as: "createdByUser",
 });
+db.User.belongsTo(db.User, {
+  foreignKey: "reportsToId",
+  as: "reportsTo",
+});
 db.User.hasMany(db.User, {
   foreignKey: "createdById",
   as: "managedUsers",
+});
+db.User.hasMany(db.User, {
+  foreignKey: "reportsToId",
+  as: "directReports",
 });
 
 db.Project.belongsTo(db.User, {
@@ -122,6 +133,60 @@ db.Task.belongsTo(db.User, {
   foreignKey: "assignedById",
   as: "assignedByUser",
 });
+db.Task.belongsTo(db.User, {
+  foreignKey: "createdById",
+  as: "creator",
+});
+db.Task.hasMany(db.DeadlineHistory, {
+  foreignKey: "taskId",
+  as: "deadlineHistory",
+});
+db.DeadlineHistory.belongsTo(db.Task, {
+  foreignKey: "taskId",
+  as: "task",
+});
+db.Ticket.hasMany(db.DeadlineHistory, {
+  foreignKey: "ticketId",
+  as: "deadlineHistory",
+});
+db.DeadlineHistory.belongsTo(db.Ticket, {
+  foreignKey: "ticketId",
+  as: "ticket",
+});
+db.User.hasMany(db.DeadlineHistory, {
+  foreignKey: "changedById",
+  as: "deadlineChanges",
+});
+db.DeadlineHistory.belongsTo(db.User, {
+  foreignKey: "changedById",
+  as: "changedByUser",
+});
+db.Task.hasMany(db.DeadlineExtensionRequest, {
+  foreignKey: "taskId",
+  as: "deadlineExtensionRequests",
+});
+db.DeadlineExtensionRequest.belongsTo(db.Task, {
+  foreignKey: "taskId",
+  as: "task",
+});
+db.User.hasMany(db.DeadlineExtensionRequest, {
+  foreignKey: "requestedById",
+  as: "deadlineRequests",
+});
+db.DeadlineExtensionRequest.belongsTo(db.User, {
+  foreignKey: "requestedById",
+  as: "requester",
+});
+db.User.hasMany(db.DeadlineExtensionRequest, {
+  foreignKey: "reviewedById",
+  as: "reviewedDeadlineRequests",
+});
+db.DeadlineExtensionRequest.belongsTo(db.User, {
+  foreignKey: "reviewedById",
+  as: "reviewer",
+});
+db.User.hasMany(db.ActivityLog, { foreignKey: "actorId", as: "activityLogs" });
+db.ActivityLog.belongsTo(db.User, { foreignKey: "actorId", as: "actor" });
 
 db.Role.belongsToMany(db.Permission, {
   through: db.RolePermission,

@@ -2,14 +2,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { Op } = require("sequelize");
 const db = require("../models");
+const { isManager, canAssignTask } = require("../lib/permissions");
 const {
-  scopedTicketByIdQuery,
-  scopedTicketQuery,
-  scopedUserQuery,
-  scopedProjectQuery,
-  scopedTaskQuery,
-} = require("../lib/scope");
-const { normalizedRole } = require("../lib/rbac");
+  assignableUserIds,
+  buildTicketScope,
+  buildTicketQuery,
+  visibleUserIds,
+} = require("../lib/queryFilters");
 
 const Ticket = db.Ticket;
 const User = db.User;
@@ -20,16 +19,13 @@ const Notification = db.Notification;
 const Project = db.Project;
 const Task = db.Task;
 
-const adminCanManage = (user) =>
-  normalizedRole(user?.role) === "SUPER_ADMIN" ||
-  (normalizedRole(user?.role) === "ADMIN" && user.permissions.includes("ticket:assign"));
+const adminCanManage = isManager;
 
-const assigneeScope = (user) => ({
-  [Op.and]: [
-    { role: "EMPLOYEE", status: "ACTIVE" },
-    scopedUserQuery(user),
-  ],
-});
+function canManageTicket(actor, ticket) {
+  if (isManager(actor)) return true;
+  if (ticket.assignee) return canAssignTask(actor, ticket.assignee);
+  return Number(ticket.createdBy) === Number(actor.id);
+}
 
 const ticketIncludes = () => [
   { model: User, as: "creator", attributes: ["id", "name", "email"] },
@@ -65,16 +61,36 @@ async function redactUnauthorizedLinks(tickets, user) {
   const rows = Array.isArray(tickets) ? tickets : [tickets];
   const projectIds = [...new Set(rows.map((ticket) => ticket.projectId).filter(Boolean))];
   const taskIds = [...new Set(rows.map((ticket) => ticket.taskId).filter(Boolean))];
+  const visibleIds = await visibleUserIds(User, user);
+  const visibleTasks = visibleIds.length
+    ? await Task.findAll({
+      where: { assignedTo: { [Op.in]: visibleIds } },
+      attributes: ["id", "projectId"],
+      raw: true,
+    })
+    : [];
+  const visibleProjectIds = [...new Set(visibleTasks.map((task) => task.projectId).filter(Boolean))];
   const [projects, tasks] = await Promise.all([
     projectIds.length
       ? Project.findAll({
-          where: { [Op.and]: [{ id: { [Op.in]: projectIds } }, scopedProjectQuery(user)] },
+          where: isManager(user)
+            ? { id: { [Op.in]: projectIds } }
+            : {
+              id: { [Op.in]: projectIds },
+              [Op.or]: [
+                { createdBy: user.id },
+                { id: { [Op.in]: visibleProjectIds } },
+              ],
+            },
           attributes: ["id", "title"],
         })
       : [],
-    taskIds.length
+    taskIds.length && visibleIds.length
       ? Task.findAll({
-          where: { [Op.and]: [{ id: { [Op.in]: taskIds } }, scopedTaskQuery(user)] },
+          where: {
+            id: { [Op.in]: taskIds },
+            assignedTo: { [Op.in]: visibleIds },
+          },
           attributes: ["id", "title", "projectId"],
           include: [
             { model: User, as: "assignee", attributes: ["id"], required: false },
@@ -113,9 +129,10 @@ async function recordHistory(ticket, actorId, field, oldValue, newValue, action 
 }
 
 async function getScopedTicket(req, id, transaction) {
+  const { where } = await buildTicketScope({ actor: req.user, User });
   return Ticket.findOne({
-    where: scopedTicketByIdQuery(req.user, id),
-    include: [{ model: User, as: "assignee", attributes: ["id", "createdById"], required: false }],
+    where: { [Op.and]: [{ id }, where] },
+    include: [{ model: User, as: "assignee", attributes: ["id", "name", "department", "position", "createdById"], required: false }],
     transaction,
   });
 }
@@ -155,34 +172,11 @@ async function getTickets(req, res) {
   try {
     const query = req.validatedQuery || req.query;
     const scopeInclude = [{ model: User, as: "assignee", attributes: [], required: false }];
-    const filters = [];
-    if (query.search) {
-      const term = query.search.trim();
-      filters.push(/^\d+$/.test(term)
-        ? { [Op.or]: [{ id: Number(term) }, { title: { [Op.like]: `%${term}%` } }] }
-        : { title: { [Op.like]: `%${term}%` } });
-    }
-    if (query.status) filters.push({ status: { [Op.in]: query.status.split(",").map((status) => status.trim()) } });
-    if (query.priority) filters.push({ priority: { [Op.in]: query.priority.split(",").map((priority) => priority.trim()) } });
-    if (query.department) filters.push({ department: query.department });
-    if (query.assignee === "unassigned") filters.push({ assignedTo: null });
-    else if (query.assignee) filters.push({ assignedTo: query.assignee });
-    if (query.view === "assigned") filters.push({ assignedTo: req.user.id });
-    else if (query.view === "created") filters.push({ createdBy: req.user.id });
-    if (query.overdue === "true") {
-      filters.push({ deadline: { [Op.lt]: new Date().toISOString().slice(0, 10) } });
-      filters.push({ status: { [Op.notIn]: ["Resolved", "Closed"] } });
-    } else if (query.overdue === "false") {
-      filters.push({
-        [Op.or]: [
-          { status: { [Op.in]: ["Resolved", "Closed"] } },
-          { deadline: null },
-          { deadline: { [Op.gte]: new Date().toISOString().slice(0, 10) } },
-        ],
-      });
-    }
-    const where = { [Op.and]: [scopedTicketQuery(req.user), ...filters] };
-    const countWhere = { [Op.and]: [scopedTicketQuery(req.user)] };
+    const [{ where, page, pageSize }, { where: scopeWhere }] = await Promise.all([
+      buildTicketQuery({ actor: req.user, User, filters: query }),
+      buildTicketScope({ actor: req.user, User }),
+    ]);
+    const countWhere = scopeWhere;
     const today = new Date().toISOString().slice(0, 10);
     const [total, open, inProgress, resolved, closed, overdueCount] = await Promise.all([
       Ticket.count({ where: countWhere, include: scopeInclude, distinct: true }),
@@ -214,14 +208,14 @@ async function getTickets(req, res) {
         { model: Task, as: "relatedTask", attributes: ["id", "title"], required: false },
       ],
       order,
-      limit: query.pageSize,
-      offset: (query.page - 1) * query.pageSize,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
       distinct: true,
     });
     await redactUnauthorizedLinks(rows, req.user);
 
     const departments = await Ticket.findAll({
-      where: scopedTicketQuery(req.user),
+      where: scopeWhere,
       attributes: [[db.sequelize.fn("DISTINCT", db.sequelize.col("department")), "department"]],
       include: [{ model: User, as: "assignee", attributes: [], required: false }],
       order: [["department", "ASC"]],
@@ -236,9 +230,9 @@ async function getTickets(req, res) {
         totalAbsolute: total,
         summary: { total, open, inProgress, resolved, closed, overdue: overdueCount },
         departments: departments.map((row) => row.department),
-        page: query.page,
-        pageSize: query.pageSize,
-        pageCount: Math.max(1, Math.ceil(count / query.pageSize)),
+        page,
+        pageSize,
+        pageCount: Math.max(1, Math.ceil(count / pageSize)),
       },
     });
   } catch (error) {
@@ -250,9 +244,11 @@ async function getTickets(req, res) {
 async function getTicketDetails(req, res) {
   try {
     const { id } = req.validatedParams || req.params;
-    const scopedTicket = await getScopedTicket(req, id);
-    if (!scopedTicket) return res.status(404).json({ success: false, message: "Ticket not found." });
-    const ticket = await Ticket.findByPk(scopedTicket.id, { include: ticketIncludes() });
+    const { where } = await buildTicketScope({ actor: req.user, User });
+    const ticket = await Ticket.findOne({
+      where: { [Op.and]: [{ id }, where] },
+      include: ticketIncludes(),
+    });
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
     await redactUnauthorizedLinks(ticket, req.user);
     return res.status(200).json({ success: true, data: { ticket } });
@@ -268,10 +264,19 @@ async function assignTicket(req, res) {
     const { assignedTo } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
+    if (!canManageTicket(req.user, ticket)) {
+      return res.status(403).json({ success: false, message: "You cannot reassign this ticket." });
+    }
     let assignee = null;
     if (assignedTo !== null) {
-      assignee = await User.findOne({ where: { [Op.and]: [{ id: assignedTo }, assigneeScope(req.user)] }, attributes: ["id", "name"] });
-      if (!assignee) return res.status(404).json({ success: false, message: "Assignee is outside your permitted team." });
+      const allowedIds = await assignableUserIds(User, req.user);
+      assignee = await User.findOne({
+        where: { id: assignedTo, status: "ACTIVE", isActive: true, ...(Number(assignedTo) === Number(req.user.id) ? {} : { id: { [Op.in]: allowedIds } }) },
+        attributes: ["id", "name", "department", "position"],
+      });
+      if (!assignee || (Number(assignedTo) !== Number(req.user.id) && !canAssignTask(req.user, assignee))) {
+        return res.status(404).json({ success: false, message: "Assignee is outside your permitted team." });
+      }
     }
     const oldAssignedTo = ticket.assignedTo;
     if (oldAssignedTo === (assignee?.id ?? null)) {
@@ -310,8 +315,8 @@ async function updateTicketStatus(req, res) {
     if (status === "Closed") {
       if (!isAdmin && Number(ticket.createdBy) !== Number(req.user.id)) return res.status(403).json({ success: false, message: "Only the creator or an administrator may close a ticket." });
       if (ticket.status !== "Resolved") return res.status(409).json({ success: false, message: "Only resolved tickets can be closed." });
-    } else if (!isAdmin && !isAssignedMember) {
-      return res.status(403).json({ success: false, message: "Only the assigned member or an administrator may update this ticket." });
+    } else if (!isAdmin && !isAssignedMember && !canManageTicket(req.user, ticket)) {
+      return res.status(403).json({ success: false, message: "You cannot update this ticket." });
     }
     if (status === "In-Progress" && !["Open", "In-Progress"].includes(ticket.status)) {
       return res.status(409).json({ success: false, message: "Only open tickets can be moved into progress. Reopen a closed or resolved ticket first." });
@@ -354,18 +359,24 @@ async function resolveLegacyTicket(req, res) {
   const { rootCause, resolutionNote, department, assignedTo } = req.body;
   const ticket = await getScopedTicket(req, id);
   if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
-  if (!adminCanManage(req.user) && Number(ticket.assignedTo) !== Number(req.user.id)) {
+  if (!adminCanManage(req.user) && Number(ticket.assignedTo) !== Number(req.user.id) && !canManageTicket(req.user, ticket)) {
     return res.status(403).json({ success: false, message: "Only the assigned member or an administrator may resolve this ticket." });
   }
   if (ticket.status === "Closed") return res.status(409).json({ success: false, message: "Reopen this ticket before resolving it again." });
-  if (Number(assignedTo) !== Number(ticket.assignedTo) && !req.user.permissions.includes("ticket:assign")) {
-    return res.status(403).json({ success: false, message: "Only an administrator may reassign this ticket." });
+  if (Number(assignedTo) !== Number(ticket.assignedTo) && !canManageTicket(req.user, ticket)) {
+    return res.status(403).json({ success: false, message: "You cannot reassign this ticket." });
   }
+  const allowedIds = await assignableUserIds(User, req.user);
   const assignee = await User.findOne({
-    where: { [Op.and]: [{ id: assignedTo }, assigneeScope(req.user)] },
-    attributes: ["id", "name"],
+    where: { id: assignedTo, status: "ACTIVE", isActive: true, [Op.or]: [{ id: req.user.id }, { id: { [Op.in]: allowedIds } }] },
+    attributes: ["id", "name", "department", "position"],
   });
-  if (!assignee) return res.status(404).json({ success: false, message: "Assignee is outside your permitted team." });
+  if (!assignee || (Number(assignedTo) !== Number(req.user.id) && !canAssignTask(req.user, assignee))) {
+    return res.status(404).json({ success: false, message: "Assignee is outside your permitted team." });
+  }
+  if (department !== assignee.department) {
+    return res.status(400).json({ success: false, message: "The ticket department must match the assignee's department." });
+  }
 
   try {
     const oldStatus = ticket.status;
@@ -559,9 +570,10 @@ async function uploadAttachment(req, res) {
 async function downloadAttachment(req, res) {
   try {
     const { id, attachmentId } = req.validatedParams || req.params;
+    const { where } = await buildTicketScope({ actor: req.user, User });
     const attachment = await TicketAttachment.findOne({
       where: { id: attachmentId, ticketId: id },
-      include: [{ model: Ticket, as: "ticket", where: scopedTicketQuery(req.user), required: true, include: [{ model: User, as: "assignee", attributes: ["id"], required: false }] }],
+      include: [{ model: Ticket, as: "ticket", where, required: true, include: [{ model: User, as: "assignee", attributes: ["id"], required: false }] }],
     });
     if (!attachment) return res.status(404).json({ success: false, message: "Attachment not found." });
     const filePath = path.join(attachmentStorage, path.basename(attachment.storageName));

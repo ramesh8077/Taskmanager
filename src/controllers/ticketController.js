@@ -4,12 +4,12 @@ const TicketComment = db.TicketComment;
 const TicketHistory = db.TicketHistory;
 const User = db.User;
 const { Op } = require("sequelize");
+const { canAssignTask, isManager } = require("../lib/permissions");
+const { visibleUserIds } = require("../lib/queryFilters");
 const {
   scopedTicketQuery,
   scopedTicketByIdQuery,
   scopedUserQuery,
-  scopedProjectQuery,
-  scopedTaskByIdQuery,
 } = require("../lib/scope");
 
 /**
@@ -17,30 +17,18 @@ const {
  */
 const createTicket = async (req, res) => {
   try {
-    const { title, description, screenshotUrl, priority, department, assignedTo, deadline, projectId, taskId } = req.body;
+    const { title, description, screenshotUrl, priority, assignedTo, deadline, projectId, taskId } = req.body;
     let assigneeId = null;
     let assigneeName = null;
+    let assigneeDepartment = null;
     if (assignedTo !== undefined && assignedTo !== null) {
-      if (
-        !req.user.permissions.includes("ticket:assign") &&
-        Number(assignedTo) !== Number(req.user.id)
-      ) {
-        return res.status(403).json({
-          ok: false,
-          error: { code: "FORBIDDEN", message: "You may only assign this ticket to yourself." },
-          success: false,
-          message: "You may only assign this ticket to yourself.",
-        });
-      }
       const assignee = await User.findOne({
-        where: {
-          [Op.and]: [
-            { id: assignedTo, role: "EMPLOYEE", status: "ACTIVE" },
-            scopedUserQuery(req.user),
-          ],
-        },
+        where: { id: assignedTo, status: "ACTIVE", isActive: true },
       });
-      if (!assignee) {
+      if (!assignee || (
+        Number(assignedTo) !== Number(req.user.id) &&
+        !canAssignTask(req.user, assignee)
+      )) {
         return res.status(404).json({
           ok: false,
           error: { code: "NOT_FOUND", message: "Assignee is outside your permitted scope." },
@@ -50,12 +38,14 @@ const createTicket = async (req, res) => {
       }
       assigneeId = assignee.id;
       assigneeName = assignee.name;
+      assigneeDepartment = assignee.department;
     }
 
     let linkedProjectId = projectId || null;
     if (taskId) {
+      const visibleIds = await visibleUserIds(User, req.user);
       const linkedTask = await db.Task.findOne({
-        where: scopedTaskByIdQuery(req.user, taskId),
+        where: { id: taskId, assignedTo: { [Op.in]: visibleIds } },
         include: [
           { model: User, as: "assignee", attributes: ["id"], required: false },
           { model: db.Project, as: "project", attributes: ["id"], required: false },
@@ -66,8 +56,14 @@ const createTicket = async (req, res) => {
       }
     }
     if (linkedProjectId) {
-      const project = await db.Project.findOne({ where: { id: linkedProjectId, ...scopedProjectQuery(req.user) } });
-      if (!project) return res.status(404).json({ success: false, message: "Project is outside your permitted scope." });
+      const project = await db.Project.findByPk(linkedProjectId);
+      const visibleIds = isManager(req.user) ? null : await visibleUserIds(User, req.user);
+      const hasVisibleTask = isManager(req.user) || (visibleIds.length > 0 &&
+        await db.Task.count({ where: { projectId: linkedProjectId, assignedTo: { [Op.in]: visibleIds } } }) > 0);
+      const isCreator = Number(project?.createdBy) === Number(req.user.id);
+      if (!project || (!isManager(req.user) && !isCreator && !hasVisibleTask)) {
+        return res.status(404).json({ success: false, message: "Project is outside your permitted scope." });
+      }
     }
 
     const ticket = await db.sequelize.transaction(async (transaction) => {
@@ -77,7 +73,7 @@ const createTicket = async (req, res) => {
           description,
           screenshotUrl,
           priority,
-          department,
+          department: assigneeDepartment || req.user.department,
           assignedTo: assigneeId,
           deadline: deadline || null,
           projectId: linkedProjectId,

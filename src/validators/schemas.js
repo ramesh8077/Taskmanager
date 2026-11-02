@@ -1,4 +1,9 @@
 const { z } = require("zod");
+const {
+  DEPARTMENTS,
+  POSITIONS,
+  REPORTING_POSITIONS,
+} = require("../../shared/organization");
 
 const positiveId = z.coerce.number().int().positive();
 const shortText = (min, max) =>
@@ -16,8 +21,40 @@ const registerBody = z
     name: shortText(2, 100),
     email: z.string().trim().email().max(150).transform((email) => email.toLowerCase()),
     password: z.string().min(8).max(255),
+    department: z.enum(DEPARTMENTS),
+    position: z.enum(POSITIONS),
+    reportsToId: positiveId.nullable(),
+  })
+  .strict()
+  .superRefine((body, context) => {
+    if (body.position === "MANAGER" && body.reportsToId !== null) {
+      context.addIssue({
+        code: "custom",
+        path: ["reportsToId"],
+        message: "A Manager cannot report to another user.",
+      });
+    }
+    if (body.position !== "MANAGER" && body.reportsToId === null) {
+      context.addIssue({
+        code: "custom",
+        path: ["reportsToId"],
+        message: "Select a reporting manager.",
+      });
+    }
+  });
+
+const reportingOptionsQuery = z
+  .object({
+    department: z.enum(DEPARTMENTS),
+    position: z.enum(POSITIONS),
   })
   .strict();
+
+const registrationOptions = Object.freeze({
+  departments: DEPARTMENTS,
+  positions: POSITIONS,
+  reportingPositions: REPORTING_POSITIONS,
+});
 
 const createProjectBody = z
   .object({
@@ -53,9 +90,34 @@ const taskProgressBody = z
   .object({ progress: z.coerce.number().int().min(0).max(100) })
   .strict();
 
+const deadlineExtensionRequestBody = z.object({
+  requestedDeadline: z.string().date(),
+  reason: shortText(5, 2000),
+}).strict();
+const deadlineExtensionReviewBody = z.object({
+  decision: z.enum(["APPROVED", "REJECTED"]),
+  responseNote: z.string().trim().max(2000).optional(),
+}).strict();
+const deadlineExtensionQuery = z.object({
+  status: z.enum(["PENDING", "APPROVED", "REJECTED"]).optional(),
+  taskId: positiveId.optional(),
+  assigneeId: positiveId.optional(),
+}).strict();
+
 const memberSearchQuery = z.object({
   q: z.string().trim().max(100).optional(),
 }).strict();
+
+const memberUpdateBody = z.object({
+  name: shortText(2, 100).optional(),
+  department: z.enum(DEPARTMENTS).optional(),
+  position: z.enum(POSITIONS).optional(),
+  reportsToId: positiveId.nullable().optional(),
+  isActive: z.boolean().optional(),
+}).strict().refine(
+  (body) => Object.keys(body).length > 0,
+  { message: "Provide at least one member field to update." }
+);
 
 const memberOverviewQuery = z.object({
   startDate: z.string().date().optional(),
@@ -63,6 +125,7 @@ const memberOverviewQuery = z.object({
   projectId: positiveId.optional(),
   status: z.enum(["Pending", "In-Progress", "Completed"]).optional(),
   priority: z.enum(["Low", "Medium", "High", "Urgent"]).optional(),
+  search: z.string().trim().max(100).optional(),
   page: z.coerce.number().int().positive().max(1000000).default(1),
   pageSize: z.coerce.number().int().positive().max(100).default(10),
 }).strict().refine(
@@ -87,15 +150,57 @@ const taskQuery = z
       )
       .optional(),
     assignedTo: positiveId.optional(),
+    createdBy: positiveId.optional(),
     projectId: positiveId.optional(),
     overdue: z.enum(["true", "false"]).optional(),
+    dueWithin48h: z.enum(["true", "false"]).optional(),
+    deadlineExtended: z.enum(["true", "false"]).optional(),
+    assignedToMe: z.enum(["true", "false"]).optional(),
+    createdByMe: z.enum(["true", "false"]).optional(),
     search: z.string().trim().max(100).optional(),
-    sortBy: z.enum(["dueDate", "priority", "status", "createdAt"]).optional(),
+    deadlineFrom: z.string().date().optional(),
+    deadlineTo: z.string().date().optional(),
+    createdFrom: z.string().date().optional(),
+    createdTo: z.string().date().optional(),
+    minProgress: z.coerce.number().int().min(0).max(100).optional(),
+    maxProgress: z.coerce.number().int().min(0).max(100).optional(),
+    sortBy: z.enum(["dueDate", "priority", "status", "createdAt", "progress", "name"]).optional(),
     sortOrder: z.enum(["ASC", "DESC", "asc", "desc"]).optional(),
+    department: z.string().trim().max(100).optional(),
+    assigneePosition: z.enum(POSITIONS).optional(),
+    page: z.coerce.number().int().positive().max(1000000).default(1),
+    pageSize: z.coerce.number().int().positive().max(100).default(100),
   })
-  .strict();
+  .strict()
+  .refine(
+    (query) => !query.deadlineFrom || !query.deadlineTo || query.deadlineFrom <= query.deadlineTo,
+    { message: "deadlineFrom must be on or before deadlineTo.", path: ["deadlineFrom"] }
+  )
+  .refine(
+    (query) => !query.createdFrom || !query.createdTo || query.createdFrom <= query.createdTo,
+    { message: "createdFrom must be on or before createdTo.", path: ["createdFrom"] }
+  )
+  .refine(
+    (query) => query.minProgress === undefined || query.maxProgress === undefined || query.minProgress <= query.maxProgress,
+    { message: "minProgress must be less than or equal to maxProgress.", path: ["minProgress"] }
+  );
+
+const updateTaskBody = z.object({
+  title: shortText(3, 200).optional(),
+  description: z.string().trim().max(10000).nullable().optional(),
+  priority: z.enum(["Low", "Medium", "High", "Urgent"]).optional(),
+  dueDate: z.string().date().optional(),
+  reason: shortText(1, 2000).optional(),
+}).strict().refine(
+  (body) => Object.keys(body).some((key) => key !== "reason"),
+  { message: "Provide at least one task field to update." }
+).refine(
+  (body) => !Object.hasOwn(body, "dueDate") || !!body.reason,
+  { message: "A reason is required when changing the deadline.", path: ["reason"] }
+);
 
 const idParams = z.object({ id: positiveId }).strict();
+const deadlineExtensionRequestParams = z.object({ requestId: positiveId }).strict();
 const attachmentParams = z.object({ id: positiveId, attachmentId: positiveId }).strict();
 
 const createTicketBody = z
@@ -108,7 +213,7 @@ const createTicketBody = z
       .nullable()
       .transform((value) => (value === "" ? null : value)),
     priority: z.enum(["P0", "P1", "P2"]),
-    department: shortText(1, 100),
+    department: shortText(1, 100).optional(),
     assignedTo: positiveId.optional().nullable(),
     deadline: z.string().date().optional().nullable(),
     projectId: positiveId.optional().nullable(),
@@ -167,14 +272,22 @@ const ticketQuery = z
 module.exports = {
   loginBody,
   registerBody,
+  reportingOptionsQuery,
+  registrationOptions,
   createProjectBody,
   createTaskBody,
   taskStatusBody,
   taskPriorityBody,
   taskProgressBody,
+  updateTaskBody,
   taskQuery,
   memberSearchQuery,
+  memberUpdateBody,
   memberOverviewQuery,
+  deadlineExtensionRequestParams,
+  deadlineExtensionRequestBody,
+  deadlineExtensionReviewBody,
+  deadlineExtensionQuery,
   idParams,
   attachmentParams,
   createTicketBody,

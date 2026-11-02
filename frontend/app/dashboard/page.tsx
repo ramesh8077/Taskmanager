@@ -4,20 +4,20 @@
  * Dashboard Page
  *
  * Protected route that renders:
- *   - AdminDashboard when the user has task:create permission
- *   - MemberDashboard for other authenticated users
+ *   - Team workspace for positions that can manage lower-ranked users
+ *   - Personal task dashboard for Interns
  *
  * Includes theme toggle (dark/light mode) in the navbar.
  */
 
 import ProtectedRoute from "@/components/ProtectedRoute";
+import Link from "next/link";
 import AdminDashboard from "@/components/AdminDashboard";
 import MemberDashboard from "@/components/MemberDashboard";
 import TicketDashboard from "@/components/TicketDashboard";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
 import { useState } from "react";
-import { can } from "@/lib/rbac";
 
 export default function DashboardPage() {
   const { user, logout } = useAuth();
@@ -94,9 +94,18 @@ export default function DashboardPage() {
                 </div>
                 <div className="hidden sm:block">
                   <p className="text-sm font-medium leading-none text-black">{user?.name}</p>
-                  <p className="text-xs t-text-muted mt-0.5">{user?.role}</p>
+                  <p className="text-xs t-text-muted mt-0.5">{user?.position}</p>
                 </div>
               </div>
+
+              {user && (
+                <Link
+                  href={`/dashboard/members/${user.id}`}
+                  className="rounded-lg border border-indigo-500/30 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-500/5"
+                >
+                  My details
+                </Link>
+              )}
 
               {/* Logout */}
               <button
@@ -124,13 +133,13 @@ export default function DashboardPage() {
                   Welcome, {user?.name} 👋
                 </h1>
                 <p className="text-slate-800 mt-1 text-sm">
-                  Logged in as{" "}
+                  {user?.department} ·{" "}
                   <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-300">
-                    {user?.role}
+                  {user?.position}
                   </span>
                 </p>
               </div>
-              {can(user, "task:create") ? <AdminDashboard /> : <MemberDashboard />}
+              {user?.position === "INTERN" ? <MemberDashboard /> : <AdminDashboard />}
             </>
           ) : (
             <TicketDashboard />

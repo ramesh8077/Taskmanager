@@ -2,6 +2,7 @@
  * Ticket Model
  */
 const { DataTypes } = require("sequelize");
+const crypto = require("node:crypto");
 
 module.exports = (sequelize) => {
   const Ticket = sequelize.define(
@@ -11,6 +12,12 @@ module.exports = (sequelize) => {
         type: DataTypes.INTEGER,
         primaryKey: true,
         autoIncrement: true,
+      },
+      ticketId: {
+        type: DataTypes.STRING(32),
+        allowNull: false,
+        unique: true,
+        defaultValue: () => `TKT-${crypto.randomBytes(8).toString("hex").toUpperCase()}`,
       },
       title: {
         type: DataTypes.STRING(200),
@@ -25,18 +32,34 @@ module.exports = (sequelize) => {
         allowNull: true,
       },
       priority: {
-        type: DataTypes.ENUM("P0", "P1", "P2"),
+        type: DataTypes.ENUM("P0", "P1", "P2", "LOW", "MEDIUM", "HIGH", "URGENT"),
         allowNull: false,
         defaultValue: "P2",
       },
       status: {
-        type: DataTypes.ENUM("Open", "In-Progress", "Resolved", "Closed"),
+        type: DataTypes.ENUM(
+          "Open",
+          "In-Progress",
+          "Resolved",
+          "Closed",
+          "TODO",
+          "IN_PROGRESS",
+          "IN_REVIEW",
+          "DONE",
+          "BLOCKED"
+        ),
         allowNull: false,
         defaultValue: "Open",
       },
       department: {
         type: DataTypes.STRING(100),
         allowNull: false,
+      },
+      progress: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+        validate: { min: 0, max: 100, isInt: true },
       },
       rootCause: {
         type: DataTypes.TEXT,
@@ -86,6 +109,13 @@ module.exports = (sequelize) => {
       tableName: "tickets",
       timestamps: true,
       underscored: true,
+      hooks: {
+        beforeValidate(ticket) {
+          if (!ticket.ticketId) {
+            ticket.ticketId = `TKT-${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
+          }
+        },
+      },
     }
   );
 

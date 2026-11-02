@@ -12,25 +12,63 @@
 const express = require("express");
 const router = express.Router();
 const taskController = require("../controllers/taskController");
-const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
+const deadlineExtensionController = require("../controllers/deadlineExtensionController");
+const { verifyToken } = require("../middlewares/authMiddleware");
 const { validateRequest } = require("../middlewares/validate");
 const {
   createTaskBody,
   taskStatusBody,
   taskPriorityBody,
   taskProgressBody,
+  updateTaskBody,
   taskQuery,
   idParams,
+  deadlineExtensionRequestBody,
+  deadlineExtensionReviewBody,
+  deadlineExtensionQuery,
+  deadlineExtensionRequestParams,
 } = require("../validators/schemas");
 
 // ─── Task creation ──────────────────────────────────────────────────────────
 
+router.get(
+  "/deadline-requests",
+  verifyToken,
+  validateRequest(deadlineExtensionQuery, "query"),
+  deadlineExtensionController.listRequests
+);
+router.put(
+  "/deadline-requests/:requestId",
+  verifyToken,
+  validateRequest(deadlineExtensionRequestParams, "params"),
+  validateRequest(deadlineExtensionReviewBody),
+  deadlineExtensionController.reviewRequest
+);
 router.post(
   "/",
   verifyToken,
-  requirePermission("task:create"),
   validateRequest(createTaskBody),
   taskController.createTask
+);
+router.post(
+  "/:id/deadline-requests",
+  verifyToken,
+  validateRequest(idParams, "params"),
+  validateRequest(deadlineExtensionRequestBody),
+  deadlineExtensionController.createRequest
+);
+router.put(
+  "/:id",
+  verifyToken,
+  validateRequest(idParams, "params"),
+  validateRequest(updateTaskBody),
+  taskController.updateTask
+);
+router.delete(
+  "/:id",
+  verifyToken,
+  validateRequest(idParams, "params"),
+  taskController.deleteTask
 );
 
 // ─── Scoped, permission-guarded routes ─────────────────────────────────────
@@ -38,14 +76,12 @@ router.post(
 router.get(
   "/",
   verifyToken,
-  requirePermission("task:view:any", "task:view:own"),
   validateRequest(taskQuery, "query"),
   taskController.getTasks
 );
 router.put(
   "/:id/status",
   verifyToken,
-  requirePermission("task:update:any", "task:update:own"),
   validateRequest(idParams, "params"),
   validateRequest(taskStatusBody),
   taskController.updateStatus
@@ -53,7 +89,6 @@ router.put(
 router.put(
   "/:id/priority",
   verifyToken,
-  requirePermission("task:update:any", "task:update:own"),
   validateRequest(idParams, "params"),
   validateRequest(taskPriorityBody),
   taskController.updatePriority
@@ -61,7 +96,6 @@ router.put(
 router.put(
   "/:id/progress",
   verifyToken,
-  requirePermission("task:update:any", "task:update:own"),
   validateRequest(idParams, "params"),
   validateRequest(taskProgressBody),
   taskController.updateProgress
@@ -69,7 +103,6 @@ router.put(
 router.get(
   "/:id/history",
   verifyToken,
-  requirePermission("task:view:any", "task:view:own"),
   validateRequest(idParams, "params"),
   taskController.getTaskHistory
 );

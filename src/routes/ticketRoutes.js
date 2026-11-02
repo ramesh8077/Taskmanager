@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const ticketController = require("../controllers/ticketController");
 const workflowController = require("../controllers/ticketWorkflowController");
-const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
+const { verifyToken } = require("../middlewares/authMiddleware");
 const { validateRequest } = require("../middlewares/validate");
 const multer = require("multer");
 const fs = require("node:fs");
@@ -90,73 +90,62 @@ router.use(verifyToken);
 
 router.post(
   "/",
-  requirePermission("ticket:create"),
   validateRequest(createTicketBody),
   ticketController.createTicket
 );
 router.get(
   "/",
-  requirePermission("ticket:view:any", "ticket:view:own"),
   validateRequest(ticketQuery, "query"),
   workflowController.getTickets
 );
 router.get(
   "/:id",
-  requirePermission("ticket:view:any", "ticket:view:own"),
   validateRequest(idParams, "params"),
   workflowController.getTicketDetails
 );
 router.put(
   "/:id/assignee",
-  requirePermission("ticket:assign"),
   validateRequest(idParams, "params"),
   validateRequest(ticketAssignmentBody),
   workflowController.assignTicket
 );
 router.put(
   "/:id/status",
-  requirePermission("ticket:update:any", "ticket:update:own", "ticket:view:own"),
   validateRequest(idParams, "params"),
   validateRequest(ticketStatusBody),
   workflowController.updateTicketStatus
 );
 router.put(
   "/:id/reopen",
-  requirePermission("ticket:update:any", "ticket:update:own", "ticket:view:own"),
   validateRequest(idParams, "params"),
   validateRequest(reopenTicketBody),
   workflowController.reopenTicket
 );
 router.put(
   "/:id/deadline",
-  requirePermission("ticket:assign"),
   validateRequest(idParams, "params"),
   validateRequest(ticketDeadlineBody),
   workflowController.updateDeadline
 );
 router.post(
   "/:id/attachments",
-  requirePermission("ticket:comment:create:own", "ticket:view:any"),
   validateRequest(idParams, "params"),
   handleUpload,
   workflowController.uploadAttachment
 );
 router.get(
   "/:id/attachments/:attachmentId",
-  requirePermission("ticket:view:any", "ticket:view:own"),
   validateRequest(attachmentParams, "params"),
   workflowController.downloadAttachment
 );
 router.put(
   "/:id/resolve",
-  requirePermission("ticket:update:any", "ticket:update:own"),
   validateRequest(idParams, "params"),
   validateRequest(resolveTicketBody),
   workflowController.resolveLegacyTicket
 );
 router.post(
   "/:id/comments",
-  requirePermission("ticket:comment:create:own", "ticket:view:any"),
   validateRequest(idParams, "params"),
   validateRequest(createTicketCommentBody),
   workflowController.addComment

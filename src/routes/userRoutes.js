@@ -8,9 +8,14 @@
 const express = require("express");
 const router = express.Router();
 const userController = require("../controllers/userController");
-const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
+const { verifyToken } = require("../middlewares/authMiddleware");
 const { validateRequest } = require("../middlewares/validate");
-const { idParams, memberSearchQuery, memberOverviewQuery } = require("../validators/schemas");
+const {
+  idParams,
+  memberSearchQuery,
+  memberOverviewQuery,
+  memberUpdateBody,
+} = require("../validators/schemas");
 const notificationController = require("../controllers/notificationController");
 
 // ─── Admin-only Route ───────────────────────────────────────────────────────
@@ -18,7 +23,6 @@ const notificationController = require("../controllers/notificationController");
 router.get(
   "/team-overview/search",
   verifyToken,
-  requirePermission("user:view:any", "user:view:team"),
   validateRequest(memberSearchQuery, "query"),
   userController.searchTeamMembers
 );
@@ -32,7 +36,6 @@ router.patch(
 router.get(
   "/:id/overview",
   verifyToken,
-  requirePermission("user:view:any", "user:view:team"),
   validateRequest(idParams, "params"),
   validateRequest(memberOverviewQuery, "query"),
   userController.getMemberOverview
@@ -41,8 +44,20 @@ router.get(
 router.get(
   "/members",
   verifyToken,
-  requirePermission("user:view:any", "user:view:team"),
   userController.getMembers
+);
+router.get(
+  "/members/:id",
+  verifyToken,
+  validateRequest(idParams, "params"),
+  userController.getMemberDetail
+);
+router.patch(
+  "/members/:id",
+  verifyToken,
+  validateRequest(idParams, "params"),
+  validateRequest(memberUpdateBody),
+  userController.updateMember
 );
 
 module.exports = router;

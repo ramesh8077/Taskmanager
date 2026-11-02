@@ -29,6 +29,10 @@ interface User {
   name: string;
   email: string;
   role: "SUPER_ADMIN" | "ADMIN" | "MANAGER" | "EMPLOYEE";
+  department: string;
+  position: "MANAGER" | "SUB_MANAGER" | "TEAM_LEAD" | "EMPLOYEE" | "INTERN";
+  reportsToId: number | null;
+  employeeId: string;
   permissions: string[];
   createdAt?: string;
 }
@@ -42,6 +46,9 @@ interface AuthContextType {
     name: string;
     email: string;
     password: string;
+    department: string;
+    position: User["position"];
+    reportsToId: number | null;
   }) => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -109,10 +116,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name,
     email,
     password,
+    department,
+    position,
+    reportsToId,
   }: {
     name: string;
     email: string;
     password: string;
+    department: string;
+    position: User["position"];
+    reportsToId: number | null;
   }) => {
     try {
       setLoading(true);
@@ -120,6 +133,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         name,
         email,
         password,
+        department,
+        position,
+        reportsToId,
       });
       if (data.success) {
         toast.success(data.message || "Registration successful! Please log in.");

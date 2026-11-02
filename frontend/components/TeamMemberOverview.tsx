@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import toast from "react-hot-toast";
 import API from "@/lib/axios";
 import SkeletonLoader from "@/components/SkeletonLoader";
@@ -11,6 +12,9 @@ interface Member {
   id: number;
   name: string;
   email: string;
+  department: string;
+  position: string;
+  employeeId: string;
   createdAt?: string;
 }
 interface Task {
@@ -70,6 +74,84 @@ export default function TeamMemberOverview() {
   const [timelineTaskId, setTimelineTaskId] = useState<number | null>(null);
   const searchRequest = useRef(0);
   const overviewRequest = useRef(0);
+  const restoreAttempted = useRef(false);
+  const [urlReady, setUrlReady] = useState(false);
+  const [selectionRestored, setSelectionRestored] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("teamStatus") || "";
+      const priority = params.get("teamPriority") || "";
+      const startDate = params.get("teamStartDate") || "";
+      const endDate = params.get("teamEndDate") || "";
+      const rawPage = Number(params.get("teamPage") || 1);
+      const projectId = params.get("teamProject") || "";
+      setSearch(params.get("teamQ") || "");
+      setFilters({
+        startDate: /^\d{4}-\d{2}-\d{2}$/.test(startDate) ? startDate : "",
+        endDate: /^\d{4}-\d{2}-\d{2}$/.test(endDate) ? endDate : "",
+        projectId: /^\d+$/.test(projectId) ? projectId : "",
+        status: ["Pending", "In-Progress", "Completed"].includes(status) ? status : "",
+        priority: ["Low", "Medium", "High", "Urgent"].includes(priority) ? priority : "",
+      });
+      setPage(Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1);
+      setUrlReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!urlReady || restoreAttempted.current) return;
+    restoreAttempted.current = true;
+    const memberId = new URLSearchParams(window.location.search).get("teamMember");
+    if (!memberId || !/^\d+$/.test(memberId)) {
+      const timer = window.setTimeout(() => setSelectionRestored(true), 0);
+      return () => window.clearTimeout(timer);
+    }
+    let cancelled = false;
+    API.get(`/users/members/${memberId}`)
+      .then(({ data }) => {
+        if (cancelled) return;
+        setSelected(data.data.member);
+        setLoading(true);
+        setSelectionRestored(true);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          toast.error("Could not restore the selected team member.");
+          setSelectionRestored(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [urlReady]);
+
+  useEffect(() => {
+    if (!urlReady || !selectionRestored) return;
+    const params = new URLSearchParams(window.location.search);
+    const values: Record<string, string> = {
+      teamQ: search.trim(),
+      teamMember: selected ? String(selected.id) : "",
+      teamStartDate: filters.startDate,
+      teamEndDate: filters.endDate,
+      teamProject: filters.projectId,
+      teamStatus: filters.status,
+      teamPriority: filters.priority,
+      teamPage: page > 1 ? String(page) : "",
+    };
+    for (const [key, value] of Object.entries(values)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
+    const query = params.toString();
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
+    );
+  }, [urlReady, selectionRestored, search, selected, filters, page]);
 
   useEffect(() => {
     const request = ++searchRequest.current;
@@ -136,15 +218,15 @@ export default function TeamMemberOverview() {
   return (
     <section className="space-y-6" aria-labelledby="team-overview-title">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[.16em] text-indigo-600">Administration / People</p>
-        <h2 id="team-overview-title" className="mt-1 text-2xl font-bold t-text-primary">Team Member Overview</h2>
-        <p className="mt-1 text-sm t-text-muted">Search by name or email, then review assigned work and activity.</p>
+        <p className="text-xs font-semibold uppercase tracking-[.16em] text-indigo-600">{selected?.department || "Team"} / People</p>
+        <h2 id="team-overview-title" className="mt-1 text-2xl font-bold t-text-primary">Team Search</h2>
+        <p className="mt-1 text-sm t-text-muted">Search people within your reporting hierarchy, then review their assigned work and activity.</p>
       </div>
       <div className="grid gap-6 lg:grid-cols-[minmax(250px,320px)_minmax(0,1fr)]">
         <aside className="rounded-2xl border t-border-subtle t-bg-card p-4">
           <label className="block text-sm font-semibold t-text-primary" htmlFor="member-search">Find a team member</label>
           <input id="member-search" type="search" value={search} onChange={(event) => setSearch(event.target.value)}
-            placeholder="Name or email" className="mt-2 w-full rounded-xl border t-border-subtle bg-transparent px-3 py-2.5 text-sm t-text-primary outline-none focus:ring-2 focus:ring-indigo-500" />
+            placeholder="Name, email, or employee ID" className="mt-2 w-full rounded-xl border t-border-subtle bg-transparent px-3 py-2.5 text-sm t-text-primary outline-none focus:ring-2 focus:ring-indigo-500" />
           <div className="mt-3 flex items-center justify-between text-xs t-text-muted">
             <span>{searchLoading ? "Searching…" : `${members.length} matching members`}</span>
             {search.trim() && <button type="button" className="text-indigo-600" onClick={() => setSearch("")}>Clear</button>}
@@ -155,7 +237,7 @@ export default function TeamMemberOverview() {
                 members.map((member) => <button key={member.id} type="button" onClick={() => chooseMember(member)}
                   className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition-colors ${selected?.id === member.id ? "border-indigo-500 bg-indigo-500/5" : "t-border-subtle hover:bg-slate-500/5"}`}>
                   <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-indigo-600/10 text-sm font-bold text-indigo-700">{member.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
-                  <span className="min-w-0"><span className="block truncate text-sm font-semibold t-text-primary">{member.name}</span><span className="block truncate text-xs t-text-muted">{member.email}</span><span className="block text-[11px] t-text-muted">Member ID: {member.id}</span></span>
+                  <span className="min-w-0"><span className="block truncate text-sm font-semibold t-text-primary">{member.name}</span><span className="block truncate text-xs t-text-muted">{member.position} · {member.department}</span><span className="block text-[11px] t-text-muted">{member.employeeId}</span></span>
                 </button>)}
           </div>
         </aside>
@@ -168,7 +250,8 @@ export default function TeamMemberOverview() {
                   <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border t-border-subtle t-bg-card p-5">
                     <div className="flex min-w-0 items-center gap-4">
                       <span className="grid h-14 w-14 shrink-0 place-items-center rounded-full bg-indigo-600 text-lg font-bold text-white">{overview.member.name.split(/\s+/).map((part) => part[0]).slice(0, 2).join("").toUpperCase()}</span>
-                      <div className="min-w-0"><h3 className="truncate text-lg font-bold t-text-primary">{overview.member.name}</h3><p className="truncate text-sm t-text-muted">{overview.member.email}</p><p className="text-xs t-text-muted">Member ID: {overview.member.id} · Team information unavailable</p></div>
+                      <div className="min-w-0"><h3 className="truncate text-lg font-bold t-text-primary">{overview.member.name}</h3><p className="truncate text-sm t-text-muted">{overview.member.email}</p><p className="text-xs t-text-muted">{overview.member.employeeId} · {overview.member.position} · {overview.member.department}</p></div>
+                      <Link href={`/dashboard/members/${overview.member.id}`} className="rounded-lg border t-border-subtle px-3 py-2 text-xs font-semibold text-indigo-600 hover:bg-indigo-500/5">Open member details</Link>
                     </div>
                     <div className="flex items-center gap-3 text-sm t-text-muted"><TaskProgressCircle progress={overview.summary.completionRate} size={64} label="Member task completion" /><span>Overall completion</span></div>
                   </header>

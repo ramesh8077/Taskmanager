@@ -14,13 +14,47 @@
 
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const crypto = require("node:crypto");
+const { Op } = require("sequelize");
 const db = require("../models");
 const appConfig = require("../config/app.config");
+const {
+  DEPARTMENTS,
+  POSITIONS,
+  REPORTING_POSITIONS,
+} = require("../../shared/organization");
 
 const User = db.User;
 
 // ─── Salt rounds for bcrypt hashing ─────────────────────────────────────────
 const SALT_ROUNDS = 12;
+
+const getRegistrationOptions = (req, res) =>
+  res.status(200).json({
+    success: true,
+    data: {
+      departments: DEPARTMENTS,
+      positions: POSITIONS,
+    },
+  });
+
+const getReportingOptions = async (req, res) => {
+  const { department, position } = req.validatedQuery;
+  const allowedPositions = REPORTING_POSITIONS[position];
+  const users = allowedPositions.length
+    ? await User.findAll({
+        where: {
+          department,
+          position: { [Op.in]: allowedPositions },
+          status: "ACTIVE",
+          isActive: true,
+        },
+        attributes: ["id", "name", "position"],
+        order: [["name", "ASC"]],
+      })
+    : [];
+  return res.status(200).json({ success: true, data: { users } });
+};
 
 // ─── Cookie configuration ───────────────────────────────────────────────────
 const COOKIE_OPTIONS = {
@@ -41,7 +75,14 @@ const COOKIE_OPTIONS = {
  */
 const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body;
+    const {
+      name,
+      email,
+      password,
+      department,
+      position,
+      reportsToId,
+    } = req.body;
 
     // ── Validate required fields ──────────────────────────────────────────
     if (!name || !email || !password) {
@@ -49,6 +90,52 @@ const register = async (req, res) => {
         success: false,
         message: "Please provide name, email, and password.",
       });
+    }
+
+    const configuredManagerEmail = process.env.SUPER_ADMIN_EMAIL?.trim().toLowerCase();
+    if (position === "MANAGER" && (!configuredManagerEmail || email !== configuredManagerEmail)) {
+      return res.status(403).json({
+        success: false,
+        message: "Manager registration is restricted to the configured SUPER_ADMIN_EMAIL.",
+      });
+    }
+
+    let reportingManager = null;
+    if (position !== "MANAGER") {
+      const allowedPositions = REPORTING_POSITIONS[position];
+      reportingManager = await User.findOne({
+        where: {
+          id: reportsToId,
+          department,
+          position: { [Op.in]: allowedPositions },
+          status: "ACTIVE",
+          isActive: true,
+        },
+        attributes: ["id", "reportsToId"],
+      });
+      if (!reportingManager) {
+        return res.status(400).json({
+          success: false,
+          message: "Choose an active reporting manager in the same department with a higher position.",
+        });
+      }
+
+      const visited = new Set();
+      let ancestor = reportingManager;
+      while (ancestor) {
+        if (visited.has(Number(ancestor.id))) {
+          return res.status(400).json({
+            success: false,
+            message: "The selected reporting chain contains a cycle.",
+          });
+        }
+        visited.add(Number(ancestor.id));
+        ancestor = ancestor.reportsToId
+          ? await User.findByPk(ancestor.reportsToId, {
+              attributes: ["id", "reportsToId"],
+            })
+          : null;
+      }
     }
 
     // ── Check if user already exists ──────────────────────────────────────
@@ -69,8 +156,14 @@ const register = async (req, res) => {
       name,
       email,
       password: hashedPassword,
-      role: "EMPLOYEE",
+      role: position === "MANAGER" ? "SUPER_ADMIN" : "EMPLOYEE",
       status: "ACTIVE",
+      isActive: true,
+      department,
+      position,
+      reportsToId: reportingManager?.id || null,
+      employeeId: `EMP-${crypto.randomBytes(8).toString("hex").toUpperCase()}`,
+      joinedAt: new Date(),
     });
 
     // ── Return user data (exclude password) ───────────────────────────────
@@ -79,6 +172,10 @@ const register = async (req, res) => {
       name: newUser.name,
       email: newUser.email,
       role: newUser.role,
+      department: newUser.department,
+      position: newUser.position,
+      reportsToId: newUser.reportsToId,
+      employeeId: newUser.employeeId,
       createdAt: newUser.createdAt,
     };
 
@@ -186,6 +283,7 @@ const login = async (req, res) => {
       expiresIn: appConfig.JWT_EXPIRES_IN,
     });
     user.lastLoginAt = new Date();
+    user.lastActivityAt = new Date();
     await user.save();
 
     // ── Set JWT in HTTP-Only cookie ───────────────────────────────────────
@@ -197,6 +295,13 @@ const login = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      department: user.department,
+      position: user.position,
+      reportsToId: user.reportsToId,
+      employeeId: user.employeeId,
+      isActive: user.isActive,
+      joinedAt: user.joinedAt,
+      lastActivityAt: user.lastActivityAt,
       permissions: role.permissions.map((permission) => permission.name),
     };
 
@@ -257,7 +362,20 @@ const getMe = async (req, res) => {
   try {
     // req.user is set by the verifyToken middleware (contains id, email, role)
     const user = await User.findByPk(req.user.id, {
-      attributes: ["id", "name", "email", "role", "createdAt"],
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "role",
+        "department",
+        "position",
+        "reportsToId",
+        "employeeId",
+        "isActive",
+        "joinedAt",
+        "lastActivityAt",
+        "createdAt",
+      ],
     });
 
     if (!user) {
@@ -282,6 +400,8 @@ const getMe = async (req, res) => {
 };
 
 module.exports = {
+  getRegistrationOptions,
+  getReportingOptions,
   register,
   login,
   logout,

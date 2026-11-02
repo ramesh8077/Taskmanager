@@ -48,9 +48,23 @@ const verifyToken = async (req, res, next) => {
     }
 
     const user = await db.User.findByPk(userId, {
-      attributes: ["id", "name", "email", "role", "status", "createdById"],
+      attributes: [
+        "id",
+        "name",
+        "email",
+        "role",
+        "status",
+        "createdById",
+        "department",
+        "position",
+        "reportsToId",
+        "employeeId",
+        "isActive",
+        "joinedAt",
+        "lastActivityAt",
+      ],
     });
-    if (!user || user.status !== "ACTIVE") {
+    if (!user || user.status !== "ACTIVE" || !user.isActive) {
       return res.status(401).json({
         ok: false,
         error: { code: "INACTIVE_ACCOUNT", message: "This account is unavailable." },

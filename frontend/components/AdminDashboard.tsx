@@ -1047,6 +1047,7 @@ function DashboardStyles() {
 export default function AdminDashboard() {
   const { isDark } = useTheme();
   const { user } = useAuth();
+  const isManager = user?.position === "MANAGER";
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -1252,15 +1253,15 @@ export default function AdminDashboard() {
     <div className="admin-workspace" data-theme={isDark ? "dark" : "light"}>
       <DashboardStyles />
       <header className="aw-header">
-        <div><p className="aw-eyebrow">WORKSPACE / ADMINISTRATION</p><h1>{activeAdminSection === "workspace" ? "Project overview" : "Team Member Overview"}</h1><p className="aw-muted">Welcome{user?.name ? `, ${user.name}` : ""}. Keep your team aligned and work moving.</p></div>
-        {activeAdminSection === "workspace" && <div className="aw-actions"><button className="aw-button" onClick={() => setShowProjectModal(true)}>+ New project</button><button className="aw-button aw-primary" onClick={() => setShowTaskModal(true)}>+ New task</button></div>}
+        <div><p className="aw-eyebrow">{user?.department || "Department"} / {user?.position || "Team"}</p><h1>{activeAdminSection === "workspace" ? "Team workspace" : "Team member overview"}</h1><p className="aw-muted">Welcome{user?.name ? `, ${user.name}` : ""}. Review work within your hierarchy.</p></div>
+        {activeAdminSection === "workspace" && <div className="aw-actions">{isManager && <button className="aw-button" onClick={() => setShowProjectModal(true)}>+ New project</button>}<button className="aw-button aw-primary" onClick={() => setShowTaskModal(true)}>+ New task</button></div>}
       </header>
-      <nav aria-label="Admin sections" className="flex flex-wrap gap-2 border-b t-border-subtle pb-4">
+      <nav aria-label="Team workspace sections" className="flex flex-wrap gap-2 border-b t-border-subtle pb-4">
         {([{ id: "workspace", label: "Workspace" }, { id: "members", label: "Team Member Overview" }] as const).map((item) => (
           <button key={item.id} type="button" aria-current={activeAdminSection === item.id ? "page" : undefined}
             onClick={() => setActiveAdminSection(item.id)}
             className={`rounded-xl border px-4 py-2 text-sm font-semibold transition-colors ${activeAdminSection === item.id ? "border-indigo-600 bg-indigo-600 text-white" : "t-border-subtle t-text-muted hover:bg-slate-500/5"}`}>
-            {item.label}
+            {item.id === "workspace" ? "Workspace" : "Team search"}
           </button>
         ))}
       </nav>
@@ -1275,7 +1276,7 @@ export default function AdminDashboard() {
       </section>
       <section>
         <div className="aw-section-heading"><div><h2>Projects</h2><p className="aw-muted aw-small">Progress, ownership, and outstanding work at a glance.</p></div><span className="aw-pill">{projects.length} projects</span></div>
-        {!projects.length ? <div className="aw-card aw-empty"><h3>{hasLoaded ? "Start your first project" : "Projects unavailable"}</h3><p className="aw-muted">{hasLoaded ? "Create a project, then add tasks and assign your team." : "Retry loading your workspace above."}</p>{hasLoaded && <button className="aw-button" onClick={() => setShowProjectModal(true)}>+ New project</button>}</div> : <div className="aw-projects">{projects.map(project => {
+        {!projects.length ? <div className="aw-card aw-empty"><h3>{hasLoaded ? "No projects in your scope" : "Projects unavailable"}</h3><p className="aw-muted">{hasLoaded ? (isManager ? "Create a project, then add tasks and assign your team." : "Projects with tasks assigned within your team will appear here.") : "Retry loading your workspace above."}</p>{hasLoaded && isManager && <button className="aw-button" onClick={() => setShowProjectModal(true)}>+ New project</button>}</div> : <div className="aw-projects">{projects.map(project => {
           const projectTasks = tasks.filter(task => belongsToProject(task, String(project.id)));
           const completed = projectTasks.filter(task => task.status === "Completed").length;
           const overdue = projectTasks.filter(isOverdue).length;

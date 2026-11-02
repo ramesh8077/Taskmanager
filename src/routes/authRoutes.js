@@ -14,7 +14,11 @@ const authController = require("../controllers/authController");
 const { verifyToken } = require("../middlewares/authMiddleware");
 const { rateLimit } = require("express-rate-limit");
 const { validateRequest } = require("../middlewares/validate");
-const { loginBody, registerBody } = require("../validators/schemas");
+const {
+  loginBody,
+  registerBody,
+  reportingOptionsQuery,
+} = require("../validators/schemas");
 
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -29,6 +33,12 @@ const loginLimiter = rateLimit({
 
 // ─── Public Routes (No authentication required) ─────────────────────────────
 
+router.get("/registration-options", authController.getRegistrationOptions);
+router.get(
+  "/reporting-options",
+  validateRequest(reportingOptionsQuery, "query"),
+  authController.getReportingOptions
+);
 router.post("/register", validateRequest(registerBody), authController.register);
 router.post("/login", loginLimiter, validateRequest(loginBody), authController.login);
 router.post("/logout", authController.logout);

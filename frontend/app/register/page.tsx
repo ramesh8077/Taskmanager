@@ -8,14 +8,87 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@/context/AuthContext";
+import API from "@/lib/axios";
+
+type Position = "MANAGER" | "SUB_MANAGER" | "TEAM_LEAD" | "EMPLOYEE" | "INTERN";
+type RegistrationForm = {
+  name: string;
+  email: string;
+  password: string;
+  department: string;
+  position: Position | "";
+  reportsToId: string;
+};
+type ReportingOption = { id: number; name: string; position: Position };
+
+const positionLabels: Record<Position, string> = {
+  MANAGER: "Manager",
+  SUB_MANAGER: "Sub Manager",
+  TEAM_LEAD: "Team Lead",
+  EMPLOYEE: "Employee",
+  INTERN: "Intern",
+};
 
 export default function RegisterPage() {
   const { register, isAuthenticated, loading: authLoading } = useAuth();
   const router = useRouter();
 
-  const [form, setForm] = useState({ name: "", email: "", password: "" });
+  const [form, setForm] = useState<RegistrationForm>({
+    name: "",
+    email: "",
+    password: "",
+    department: "",
+    position: "",
+    reportsToId: "",
+  });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [reportingOptions, setReportingOptions] = useState<ReportingOption[]>([]);
+  const [reportingLoading, setReportingLoading] = useState(false);
+  const [formError, setFormError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    API.get<{
+      success: boolean;
+      data: { departments: string[]; positions: Position[] };
+    }>("/auth/registration-options")
+      .then(({ data }) => {
+        if (!active) return;
+        setDepartments(data.data.departments);
+        setPositions(data.data.positions);
+      })
+      .catch(() => {
+        if (active) setFormError("Could not load registration options. Refresh and try again.");
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!form.department || !form.position || form.position === "MANAGER") return;
+
+    let active = true;
+    API.get<{ success: boolean; data: { users: ReportingOption[] } }>(
+      "/auth/reporting-options",
+      { params: { department: form.department, position: form.position } }
+    )
+      .then(({ data }) => {
+        if (active) setReportingOptions(data.data.users);
+      })
+      .catch(() => {
+        if (active) setFormError("Could not load reporting managers. Please try again.");
+      })
+      .finally(() => {
+        if (active) setReportingLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [form.department, form.position]);
 
   useEffect(() => {
     if (!authLoading && isAuthenticated) router.replace("/dashboard");
@@ -29,6 +102,11 @@ export default function RegisterPage() {
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email)) e.email = "Please enter a valid email.";
     if (!form.password) e.password = "Password is required.";
     else if (form.password.length < 8) e.password = "Password must be at least 8 characters.";
+    if (!departments.includes(form.department)) e.department = "Select a department.";
+    if (!positions.includes(form.position as Position)) e.position = "Select a position.";
+    if (form.position !== "MANAGER" && !form.reportsToId) {
+      e.reportsToId = "Select who this account reports to.";
+    }
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -38,9 +116,19 @@ export default function RegisterPage() {
     if (!validate()) return;
     try {
       setSubmitting(true);
-      await register({ name: form.name.trim(), email: form.email.trim(), password: form.password });
-    } catch {
-      /* toast handled in context */
+      setFormError("");
+      await register({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        password: form.password,
+        department: form.department,
+        position: form.position as Position,
+        reportsToId: form.position === "MANAGER" ? null : Number(form.reportsToId),
+      });
+    } catch (error: unknown) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+      setFormError(message || "Registration failed. Please review your details and try again.");
     } finally {
       setSubmitting(false);
     }
@@ -48,8 +136,29 @@ export default function RegisterPage() {
 
   const handleChange = (ev: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = ev.target;
-    setForm((p) => ({ ...p, [name]: value }));
+    setForm((previous) => {
+      if (name === "position") {
+        setReportingOptions([]);
+        setReportingLoading(
+          Boolean(form.department && value && value !== "MANAGER")
+        );
+        return { ...previous, position: value as Position | "", reportsToId: "" };
+      }
+      if (name === "department") {
+        setReportingOptions([]);
+        setReportingLoading(
+          Boolean(value && form.position && form.position !== "MANAGER")
+        );
+        return { ...previous, department: value, reportsToId: "" };
+      }
+      if (name === "reportsToId") return { ...previous, reportsToId: value };
+      if (name === "name") return { ...previous, name: value };
+      if (name === "email") return { ...previous, email: value };
+      if (name === "password") return { ...previous, password: value };
+      return previous;
+    });
     if (errors[name]) setErrors((p) => ({ ...p, [name]: "" }));
+    setFormError("");
   };
 
   if (authLoading) {
@@ -81,6 +190,11 @@ export default function RegisterPage() {
 
         <div className="bg-white border border-slate-200 rounded-2xl p-8 shadow-xl shadow-slate-900/8">
           <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+            {formError && (
+              <p role="alert" className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {formError}
+              </p>
+            )}
             {/* Name */}
             <div>
               <label htmlFor="register-name" className="block text-sm font-medium text-slate-700 mb-1.5">Full Name</label>
@@ -98,6 +212,52 @@ export default function RegisterPage() {
               />
               {errors.email && <p className="mt-1.5 text-xs text-red-600">{errors.email}</p>}
             </div>
+
+            <div>
+              <label htmlFor="register-department" className="block text-sm font-medium text-slate-700 mb-1.5">Department</label>
+              <select id="register-department" name="department" value={form.department} onChange={handleChange}
+                className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-slate-900 text-sm outline-none focus:bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 ${errors.department ? "border-red-500/60" : "border-slate-300"}`}
+              >
+                <option value="">Select department</option>
+                {departments.map((department) => <option key={department} value={department}>{department}</option>)}
+              </select>
+              {errors.department && <p className="mt-1.5 text-xs text-red-600">{errors.department}</p>}
+            </div>
+
+            <div>
+              <label htmlFor="register-position" className="block text-sm font-medium text-slate-700 mb-1.5">Position</label>
+              <select id="register-position" name="position" value={form.position} onChange={handleChange}
+                className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-slate-900 text-sm outline-none focus:bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 ${errors.position ? "border-red-500/60" : "border-slate-300"}`}
+              >
+                <option value="">Select position</option>
+                {positions.map((position) => <option key={position} value={position}>{positionLabels[position]}</option>)}
+              </select>
+              {errors.position && <p className="mt-1.5 text-xs text-red-600">{errors.position}</p>}
+              {form.position === "MANAGER" && (
+                <p className="mt-1.5 text-xs text-slate-500">Manager registration is restricted to the configured administrator email.</p>
+              )}
+            </div>
+
+            {form.position && form.position !== "MANAGER" && (
+              <div>
+                <label htmlFor="register-reports-to" className="block text-sm font-medium text-slate-700 mb-1.5">Reports To</label>
+                <select id="register-reports-to" name="reportsToId" value={form.reportsToId} onChange={handleChange}
+                  disabled={reportingLoading || !form.department}
+                  className={`w-full px-4 py-2.5 rounded-xl bg-slate-50 border text-slate-900 text-sm outline-none focus:bg-white focus:border-brand-500 focus:ring-1 focus:ring-brand-500/30 disabled:opacity-60 ${errors.reportsToId ? "border-red-500/60" : "border-slate-300"}`}
+                >
+                  <option value="">{reportingLoading ? "Loading managers…" : "Select reporting manager"}</option>
+                  {reportingOptions.map((person) => (
+                    <option key={person.id} value={person.id}>
+                      {person.name} — {positionLabels[person.position]}
+                    </option>
+                  ))}
+                </select>
+                {errors.reportsToId && <p className="mt-1.5 text-xs text-red-600">{errors.reportsToId}</p>}
+                {!reportingLoading && form.department && form.position && reportingOptions.length === 0 && (
+                  <p className="mt-1.5 text-xs text-slate-500">No eligible reporting manager exists in this department yet.</p>
+                )}
+              </div>
+            )}
 
             {/* Password */}
             <div>

@@ -9,12 +9,37 @@
  * Mutations and reads are additionally protected by database-backed permissions.
  */
 
+const { Op } = require("sequelize");
 const db = require("../models");
-const { scopedProjectQuery } = require("../lib/scope");
+const { isManager } = require("../lib/permissions");
+const { visibleUserIds } = require("../lib/queryFilters");
 
 const Project = db.Project;
 const Task = db.Task;
 const User = db.User;
+
+async function projectAccess(req, projectId) {
+  const isAdmin = isManager(req.user);
+  const visibleIds = isAdmin ? null : await visibleUserIds(User, req.user);
+  const where = isAdmin
+    ? { id: projectId }
+    : {
+      id: projectId,
+      [Op.or]: [
+        { createdBy: req.user.id },
+        {
+          id: {
+            [Op.in]: await Task.findAll({
+              where: { assignedTo: { [Op.in]: visibleIds } },
+              attributes: ["projectId"],
+              raw: true,
+            }).then((tasks) => tasks.map((task) => task.projectId)),
+          },
+        },
+      ],
+    };
+  return { where, visibleIds };
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE PROJECT
@@ -27,6 +52,9 @@ const User = db.User;
  */
 const createProject = async (req, res) => {
   try {
+    if (!isManager(req.user)) {
+      return res.status(403).json({ success: false, message: "Only a Manager can create projects." });
+    }
     const { title, description } = req.body;
 
     // ── Validate required fields ──────────────────────────────────────────
@@ -70,8 +98,9 @@ const createProject = async (req, res) => {
 
 const getProject = async (req, res) => {
   try {
+    const { where, visibleIds } = await projectAccess(req, req.validatedParams.id);
     const project = await Project.findOne({
-      where: { id: req.validatedParams.id, ...scopedProjectQuery(req.user) },
+      where,
       include: [
         {
           model: User,
@@ -81,6 +110,10 @@ const getProject = async (req, res) => {
         {
           model: Task,
           as: "tasks",
+          ...(visibleIds ? {
+            where: { assignedTo: { [Op.in]: visibleIds } },
+            required: false,
+          } : {}),
           include: [
             {
               model: User,
@@ -122,8 +155,24 @@ const getProject = async (req, res) => {
  */
 const getAllProjects = async (req, res) => {
   try {
+    const isAdmin = isManager(req.user);
+    const visibleIds = isAdmin ? null : await visibleUserIds(User, req.user);
+    const visibleProjectIds = visibleIds
+      ? (await Task.findAll({
+        where: { assignedTo: { [Op.in]: visibleIds } },
+        attributes: ["projectId"],
+        raw: true,
+      })).map((task) => task.projectId).filter(Boolean)
+      : null;
     const projects = await Project.findAll({
-      where: scopedProjectQuery(req.user),
+      where: isAdmin
+        ? {}
+        : {
+          [Op.or]: [
+            { createdBy: req.user.id },
+            { id: { [Op.in]: visibleProjectIds } },
+          ],
+        },
       include: [
         {
           model: User,
@@ -133,6 +182,10 @@ const getAllProjects = async (req, res) => {
         {
           model: Task,
           as: "tasks",
+          ...(visibleIds ? {
+            where: { assignedTo: { [Op.in]: visibleIds } },
+            required: false,
+          } : {}),
           include: [
             {
               model: User,

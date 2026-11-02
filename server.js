@@ -112,6 +112,8 @@ const startServer = async () => {
       "202609280001-rbac-foundation.js",
       "202609290001-task-progress.js",
       "202609290002-ticket-workflow.js",
+      "202611020001-department-hierarchy.js",
+      "202611020002-deadline-extension-requests.js",
     ];
     const missingMigrations = requiredMigrations.filter(
       (migration) => !migrationRows.some((row) => row.migration_name === migration)

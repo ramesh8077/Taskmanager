@@ -34,36 +34,55 @@ module.exports = (sequelize) => {
         allowNull: true,
       },
       status: {
-        type: DataTypes.ENUM("Pending", "In-Progress", "Completed"),
+        type: DataTypes.ENUM(
+          "Pending",
+          "In-Progress",
+          "Completed",
+          "TODO",
+          "IN_PROGRESS",
+          "IN_REVIEW",
+          "DONE",
+          "BLOCKED"
+        ),
         allowNull: false,
         defaultValue: "Pending",
         validate: {
           isIn: {
-            args: [["Pending", "In-Progress", "Completed"]],
-            msg: "Status must be 'Pending', 'In-Progress', or 'Completed'.",
+            args: [[
+              "Pending",
+              "In-Progress",
+              "Completed",
+              "TODO",
+              "IN_PROGRESS",
+              "IN_REVIEW",
+              "DONE",
+              "BLOCKED",
+            ]],
+            msg: "The task status is invalid.",
           },
         },
       },
       priority: {
-        type: DataTypes.ENUM("Low", "Medium", "High", "Urgent"),
+        type: DataTypes.ENUM("Low", "Medium", "High", "Urgent", "LOW", "MEDIUM", "HIGH", "URGENT"),
         allowNull: false,
         defaultValue: "Medium",
         validate: {
           isIn: {
-            args: [["Low", "Medium", "High", "Urgent"]],
+            args: [["Low", "Medium", "High", "Urgent", "LOW", "MEDIUM", "HIGH", "URGENT"]],
             msg: "Priority must be 'Low', 'Medium', 'High', or 'Urgent'.",
           },
-          progress: {
-            type: DataTypes.INTEGER,
-            allowNull: false,
-            defaultValue: 0,
-            validate: {
-              min: 0,
-              max: 100,
-              isInt: true,
-            },
-          },
         },
+      },
+      progress: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+        defaultValue: 0,
+        validate: { min: 0, max: 100, isInt: true },
+      },
+      department: {
+        type: DataTypes.STRING(100),
+        allowNull: false,
+        defaultValue: "Operations",
       },
       dueDate: {
         type: DataTypes.DATEONLY,
@@ -103,6 +122,14 @@ module.exports = (sequelize) => {
           key: "id",
         },
         comment: "User who assigned this task.",
+      },
+      createdById: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: "users",
+          key: "id",
+        },
       },
       completedBy: {
         type: DataTypes.STRING(150),

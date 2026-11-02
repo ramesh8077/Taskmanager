@@ -6,6 +6,8 @@
  */
 
 const { DataTypes } = require("sequelize");
+const crypto = require("node:crypto");
+const { DEPARTMENTS, POSITIONS } = require("../../shared/organization");
 
 module.exports = (sequelize) => {
   const User = sequelize.define(
@@ -61,6 +63,41 @@ module.exports = (sequelize) => {
         type: DataTypes.ENUM("SUPER_ADMIN", "ADMIN", "MANAGER", "EMPLOYEE"),
         allowNull: false,
         defaultValue: "EMPLOYEE",
+      },
+      department: {
+        type: DataTypes.ENUM(...DEPARTMENTS),
+        allowNull: false,
+        defaultValue: "Operations",
+      },
+      position: {
+        type: DataTypes.ENUM(...POSITIONS),
+        allowNull: false,
+        defaultValue: "EMPLOYEE",
+      },
+      reportsToId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: { model: "users", key: "id" },
+      },
+      employeeId: {
+        type: DataTypes.STRING(32),
+        allowNull: false,
+        unique: true,
+        defaultValue: () => `EMP-${crypto.randomBytes(8).toString("hex").toUpperCase()}`,
+      },
+      isActive: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
+      joinedAt: {
+        type: DataTypes.DATE,
+        allowNull: false,
+        defaultValue: DataTypes.NOW,
+      },
+      lastActivityAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
       },
       status: {
         type: DataTypes.ENUM("ACTIVE", "INACTIVE"),

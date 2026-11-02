@@ -5,6 +5,10 @@ const {
   taskQuery,
   taskProgressBody,
   memberOverviewQuery,
+  memberUpdateBody,
+  deadlineExtensionRequestBody,
+  deadlineExtensionReviewBody,
+  deadlineExtensionQuery,
   ticketQuery,
   ticketStatusBody,
   ticketAssignmentBody,
@@ -48,6 +52,25 @@ test("member overview filters validate date ranges, filters, and pagination", ()
   assert.equal(valid.data.page, 2);
   assert.equal(memberOverviewQuery.safeParse({ startDate: "2026-02-01", endDate: "2026-01-01" }).success, false);
   assert.equal(memberOverviewQuery.safeParse({ pageSize: "101" }).success, false);
+});
+
+test("member updates and deadline extension requests validate their allowed fields", () => {
+  assert.equal(memberUpdateBody.safeParse({ name: "Team member", isActive: false }).success, true);
+  assert.equal(memberUpdateBody.safeParse({ department: "Unknown" }).success, false);
+  assert.equal(memberUpdateBody.safeParse({}).success, false);
+
+  assert.equal(deadlineExtensionRequestBody.safeParse({
+    requestedDeadline: "2030-12-31",
+    reason: "Waiting for a required dependency",
+  }).success, true);
+  assert.equal(deadlineExtensionRequestBody.safeParse({
+    requestedDeadline: "not-a-date",
+    reason: "No",
+  }).success, false);
+  assert.equal(deadlineExtensionReviewBody.safeParse({ decision: "APPROVED" }).success, true);
+  assert.equal(deadlineExtensionReviewBody.safeParse({ decision: "PENDING" }).success, false);
+  assert.equal(deadlineExtensionQuery.safeParse({ assigneeId: "5", status: "PENDING" }).success, true);
+  assert.equal(deadlineExtensionQuery.safeParse({ otherDepartment: "Legal" }).success, false);
 });
 
 test("ticket listing validates workflow filters, sorting, and pagination", () => {

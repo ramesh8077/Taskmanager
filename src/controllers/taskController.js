@@ -31,15 +31,34 @@ const Task = db.Task;
 const Project = db.Project;
 const User = db.User;
 const TaskHistory = db.TaskHistory;
+const Ticket = db.Ticket;
+const DeadlineHistory = db.DeadlineHistory;
+const ActivityLog = db.ActivityLog;
 const {
-  scopedTaskQuery,
-  scopedTaskByIdQuery,
-  scopedProjectQuery,
-  scopedUserQuery,
-} = require("../lib/scope");
+  canAssignTask,
+  canEditTask,
+  canDeleteTask,
+  canUpdateProgress,
+  isManager,
+} = require("../lib/permissions");
+const {
+  buildTaskQuery,
+  visibleUserIds,
+} = require("../lib/queryFilters");
 
-// ─── Priority weight map for sorting ────────────────────────────────────────
-const PRIORITY_ORDER = { Urgent: 1, High: 2, Medium: 3, Low: 4 };
+async function findVisibleTask(actor, id, options = {}) {
+  const allowedIds = await visibleUserIds(User, actor);
+  return Task.findOne({
+    ...options,
+    where: isManager(actor)
+      ? { id }
+      : { id, assignedTo: { [Op.in]: allowedIds } },
+    include: [
+      ...(options.include || []),
+      { model: User, as: "assignee", attributes: ["id", "name", "email", "department", "position", "createdById"], required: false },
+    ],
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE TASK
@@ -73,9 +92,7 @@ const createTask = async (req, res) => {
     }
 
     // ── Verify the project exists ─────────────────────────────────────────
-    const project = await Project.findOne({
-      where: { [Op.and]: [{ id: projectId }, scopedProjectQuery(req.user)] },
-    });
+    const project = await Project.findByPk(projectId);
 
     if (!project) {
       return res.status(404).json({
@@ -83,28 +100,25 @@ const createTask = async (req, res) => {
         message: `Project with ID ${projectId} not found.`,
       });
     }
+    if (!isManager(req.user) && Number(project.createdBy) !== Number(req.user.id)) {
+      const visibleIds = await visibleUserIds(User, req.user);
+      const hasVisibleTask = visibleIds.length > 0 && await Task.count({
+        where: { projectId, assignedTo: { [Op.in]: visibleIds } },
+      }) > 0;
+      if (!hasVisibleTask) {
+        return res.status(403).json({ success: false, message: "This project is outside your permitted scope." });
+      }
+    }
 
     // ── Verify the assigned user exists and is a Member ───────────────────
     const assignee = await User.findOne({
-      where: {
-        [Op.and]: [
-          { id: assignedTo, status: "ACTIVE", role: "EMPLOYEE" },
-          scopedUserQuery(req.user),
-        ],
-      },
+      where: { id: assignedTo, status: "ACTIVE", isActive: true },
     });
 
-    if (!assignee) {
-      return res.status(404).json({
+    if (!assignee || !canAssignTask(req.user, assignee)) {
+      return res.status(403).json({
         success: false,
-        message: `User with ID ${assignedTo} not found.`,
-      });
-    }
-
-    if (assignee.role !== "EMPLOYEE") {
-      return res.status(400).json({
-        success: false,
-        message: "Tasks can only be assigned to users with the 'Member' role.",
+        message: "You cannot assign tasks to this user.",
       });
     }
 
@@ -118,6 +132,8 @@ const createTask = async (req, res) => {
           projectId,
           assignedTo: assignee.id,
           assignedById: req.user.id,
+          createdById: req.user.id,
+          department: assignee.department,
           priority: taskPriority,
           status: "Pending",
         },
@@ -196,49 +212,26 @@ const createTask = async (req, res) => {
  */
 const getTasks = async (req, res) => {
   try {
-    const {
-      status,
-      priority,
-      assignedTo: filterAssignedTo,
-      projectId,
-      overdue,
-      search,
-      sortBy = "createdAt",
-      sortOrder = "DESC",
-    } = req.validatedQuery || req.query;
-
-    // ── Build the WHERE clause based on user role ─────────────────────────
-    const whereClause = { [Op.and]: [scopedTaskQuery(req.user)] };
-
-    // ── Apply filters ────────────────────────────────────────────────────
-    if (status) {
-      // Support comma-separated status values for bulk filtering
-      const statuses = status.split(",").map((s) => s.trim());
-      whereClause.status = { [Op.in]: statuses };
+    const query = req.validatedQuery || req.query;
+    const filters = { ...query };
+    if (query.search) {
+      const ticketConditions = [
+        { ticketId: { [Op.like]: `%${query.search}%` } },
+      ];
+      if (/^\d+$/.test(query.search)) ticketConditions.push({ id: Number(query.search) });
+      const tickets = await Ticket.findAll({
+        where: { [Op.or]: ticketConditions },
+        attributes: ["taskId"],
+        raw: true,
+      });
+      filters.ticketTaskIds = tickets.map(({ taskId }) => taskId).filter(Boolean);
     }
-
-    if (priority) {
-      // Support comma-separated priority values for bulk filtering
-      const priorities = priority.split(",").map((p) => p.trim());
-      whereClause.priority = { [Op.in]: priorities };
-    }
-
-    if (filterAssignedTo && req.user.permissions.includes("task:assign")) {
-      whereClause.assignedTo = filterAssignedTo;
-    }
-
-    if (projectId) {
-      whereClause.projectId = projectId;
-    }
-
-    // Overdue filter: status is NOT Completed & dueDate is in the past
-    if (overdue === "true") {
-      const today = new Date().toISOString().split("T")[0];
-      whereClause.dueDate = { [Op.lt]: today };
-      whereClause.status = { [Op.ne]: "Completed" };
-    }
-
-    // ── Build search conditions ──────────────────────────────────────────
+    const { where, page, pageSize } = await buildTaskQuery({
+      actor: req.user,
+      User,
+      DeadlineHistory,
+      filters,
+    });
     const includeClause = [
       {
         model: Project,
@@ -248,69 +241,35 @@ const getTasks = async (req, res) => {
       {
         model: User,
         as: "assignee",
-        attributes: ["id", "name", "email"],
+        attributes: ["id", "name", "email", "department", "position", "employeeId"],
+        required: false,
       },
     ];
-
-    if (search && search.trim()) {
-      const searchTerm = search.trim();
-
-      // Check if search term is a number (could be task ID)
-      const isNumericSearch = /^\d+$/.test(searchTerm);
-
-      const searchConditions = [
-        { title: { [Op.like]: `%${searchTerm}%` } },
-        { description: { [Op.like]: `%${searchTerm}%` } },
-      ];
-
-      if (isNumericSearch) {
-        searchConditions.push({ id: parseInt(searchTerm) });
-      }
-
-      // Search by assignee name — use a subquery approach
-      searchConditions.push({
-        "$assignee.name$": { [Op.like]: `%${searchTerm}%` },
-      });
-
-      whereClause[Op.and].push({ [Op.or]: searchConditions });
-    }
-
-    // ── Build sort order ─────────────────────────────────────────────────
-    let order;
-    const direction = sortOrder.toUpperCase() === "ASC" ? "ASC" : "DESC";
-
-    switch (sortBy) {
-      case "dueDate":
-        order = [["dueDate", direction]];
-        break;
-      case "priority":
-        // Custom priority ordering using FIELD()
-        order = [
-          [
-            db.sequelize.literal(
-              `FIELD(Task.priority, 'Urgent', 'High', 'Medium', 'Low') ${direction}`
-            ),
-          ],
-        ];
-        break;
-      case "status":
-        order = [
-          [
-            db.sequelize.literal(
-              `FIELD(Task.status, 'Pending', 'In-Progress', 'Completed') ${direction}`
-            ),
-          ],
-        ];
-        break;
-      default:
-        order = [["createdAt", direction]];
-    }
-
-    // ── Fetch tasks with full associations ────────────────────────────────
-    const tasks = await Task.findAll({
-      where: whereClause,
+    const direction = query.sortOrder?.toUpperCase() === "ASC" ? "ASC" : "DESC";
+    const sortColumns = {
+      dueDate: "dueDate",
+      priority: "priority",
+      status: "status",
+      createdAt: "createdAt",
+    };
+    const order = query.sortBy === "name"
+      ? [[{ model: User, as: "assignee" }, "name", direction]]
+      : query.sortBy === "progress"
+        ? [["progress", direction]]
+        : query.sortBy === "dueDate"
+          ? [["dueDate", direction]]
+          : query.sortBy === "priority"
+            ? [[db.sequelize.literal(`FIELD(Task.priority, 'Urgent', 'High', 'Medium', 'Low') ${direction}`)]]
+            : query.sortBy === "status"
+              ? [[db.sequelize.literal(`FIELD(Task.status, 'Pending', 'In-Progress', 'Completed') ${direction}`)]]
+              : [[sortColumns[query.sortBy] || "createdAt", direction]];
+    const { rows: tasks, count: total } = await Task.findAndCountAll({
+      where,
       include: includeClause,
-      order,
+      order: [...order, ["id", "DESC"]],
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+      distinct: true,
     });
 
     return res.status(200).json({
@@ -318,6 +277,10 @@ const getTasks = async (req, res) => {
       message: "Tasks fetched successfully.",
       data: {
         count: tasks.length,
+        total,
+        page,
+        pageSize,
+        pageCount: Math.max(1, Math.ceil(total / pageSize)),
         tasks,
       },
     });
@@ -327,6 +290,101 @@ const getTasks = async (req, res) => {
       success: false,
       message: "Internal server error while fetching tasks.",
     });
+  }
+};
+
+const updateTask = async (req, res) => {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const changes = req.body;
+    const updatedTask = await db.sequelize.transaction(async (transaction) => {
+      const task = await findVisibleTask(req.user, id, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!task) return { error: "NOT_FOUND" };
+      if (!canEditTask(req.user, task)) return { error: "FORBIDDEN" };
+
+      const changedFields = [];
+      for (const field of ["title", "description", "priority", "dueDate"]) {
+        if (!Object.hasOwn(changes, field) || task[field] === changes[field]) continue;
+        const oldValue = task[field] == null ? null : String(task[field]);
+        const newValue = changes[field] == null ? null : String(changes[field]);
+        task[field] = changes[field];
+        changedFields.push({ field, oldValue, newValue });
+      }
+
+      if (changedFields.length) {
+        await task.save({ transaction });
+        for (const change of changedFields) {
+          await TaskHistory.create({
+            taskId: task.id,
+            changedBy: req.user.id,
+            field: change.field,
+            oldValue: change.oldValue,
+            newValue: change.newValue,
+            action: change.field === "dueDate" ? "deadline_changed" : "updated",
+          }, { transaction });
+          if (change.field === "dueDate") {
+            await DeadlineHistory.create({
+              taskId: task.id,
+              oldDeadline: change.oldValue,
+              newDeadline: change.newValue,
+              changedById: req.user.id,
+              reason: changes.reason,
+            }, { transaction });
+          }
+        }
+        await ActivityLog.create({
+          actorId: req.user.id,
+          action: "task.updated",
+          entityType: "task",
+          entityId: String(task.id),
+          metadata: { fields: changedFields.map(({ field }) => field) },
+        }, { transaction });
+      }
+      return task;
+    });
+
+    if (updatedTask?.error === "NOT_FOUND") {
+      return res.status(404).json({ success: false, message: "Task not found." });
+    }
+    if (updatedTask?.error === "FORBIDDEN") {
+      return res.status(403).json({ success: false, message: "You cannot edit this task." });
+    }
+    return res.status(200).json({ success: true, data: { task: updatedTask } });
+  } catch (error) {
+    console.error("Update Task Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to update this task." });
+  }
+};
+
+const deleteTask = async (req, res) => {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const result = await db.sequelize.transaction(async (transaction) => {
+      const task = await findVisibleTask(req.user, id, {
+        transaction,
+        lock: transaction.LOCK.UPDATE,
+      });
+      if (!task) return "NOT_FOUND";
+      if (!canDeleteTask(req.user, task)) return "FORBIDDEN";
+      await ActivityLog.create({
+        actorId: req.user.id,
+        action: "task.deleted",
+        entityType: "task",
+        entityId: String(task.id),
+        metadata: { title: task.title },
+      }, { transaction });
+      await task.destroy({ transaction });
+      return "DELETED";
+    });
+    if (result === "NOT_FOUND") return res.status(404).json({ success: false, message: "Task not found." });
+    if (result === "FORBIDDEN") return res.status(403).json({ success: false, message: "You cannot delete this task." });
+    return res.status(200).json({ success: true, message: "Task deleted." });
+  } catch (error) {
+    console.error("Delete Task Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to delete this task." });
   }
 };
 
@@ -392,12 +450,8 @@ const updateStatus = async (req, res) => {
     }
 
     // ── Find the task ─────────────────────────────────────────────────────
-    const task = await Task.findOne({
-      where: scopedTaskByIdQuery(req.user, id),
-      include: [
-        { model: Project, as: "project", attributes: ["id", "createdBy"] },
-        { model: User, as: "assignee", attributes: ["id", "createdById"] },
-      ],
+    const task = await findVisibleTask(req.user, id, {
+      include: [{ model: Project, as: "project", attributes: ["id", "createdBy"] }],
     });
 
     if (!task) {
@@ -405,6 +459,9 @@ const updateStatus = async (req, res) => {
         success: false,
         message: `Task with ID ${id} not found.`,
       });
+    }
+    if (!canUpdateProgress(req.user, task)) {
+      return res.status(403).json({ success: false, message: "You cannot update this task's status." });
     }
 
     // ── Log status change in history ──────────────────────────────────────
@@ -456,20 +513,8 @@ const updateStatus = async (req, res) => {
     });
 
     // ── Re-fetch with associations for the response ───────────────────────
-    const updatedTask = await Task.findOne({
-      where: scopedTaskByIdQuery(req.user, id),
-      include: [
-        {
-          model: Project,
-          as: "project",
-          attributes: ["id", "title", "createdBy"],
-        },
-        {
-          model: User,
-          as: "assignee",
-          attributes: ["id", "name", "email"],
-        },
-      ],
+    const updatedTask = await findVisibleTask(req.user, id, {
+      include: [{ model: Project, as: "project", attributes: ["id", "title", "createdBy"] }],
     });
 
     return res.status(200).json({
@@ -490,15 +535,14 @@ const updateProgress = async (req, res) => {
   try {
     const { id } = req.validatedParams || req.params;
     const { progress } = req.body;
-    const task = await Task.findOne({
-      where: scopedTaskByIdQuery(req.user, id),
-      include: [
-        { model: Project, as: "project", attributes: ["id", "title", "createdBy"] },
-        { model: User, as: "assignee", attributes: ["id", "name", "email", "createdById"] },
-      ],
+    const task = await findVisibleTask(req.user, id, {
+      include: [{ model: Project, as: "project", attributes: ["id", "title", "createdBy"] }],
     });
     if (!task) {
       return res.status(404).json({ success: false, message: `Task with ID ${id} not found.` });
+    }
+    if (!canUpdateProgress(req.user, task)) {
+      return res.status(403).json({ success: false, message: "You cannot update this task's progress." });
     }
     if (task.status === "Completed" && progress !== 100) {
       return res.status(409).json({
@@ -589,12 +633,8 @@ const updatePriority = async (req, res) => {
     }
 
     // ── Find the task ─────────────────────────────────────────────────────
-    const task = await Task.findOne({
-      where: scopedTaskByIdQuery(req.user, id),
-      include: [
-        { model: Project, as: "project", attributes: ["id", "createdBy"] },
-        { model: User, as: "assignee", attributes: ["id", "createdById"] },
-      ],
+    const task = await findVisibleTask(req.user, id, {
+      include: [{ model: Project, as: "project", attributes: ["id", "createdBy"] }],
     });
 
     if (!task) {
@@ -602,6 +642,9 @@ const updatePriority = async (req, res) => {
         success: false,
         message: `Task with ID ${id} not found.`,
       });
+    }
+    if (!canEditTask(req.user, task)) {
+      return res.status(403).json({ success: false, message: "You cannot edit this task's priority." });
     }
 
     // ── Log priority change in history ────────────────────────────────────
@@ -625,20 +668,8 @@ const updatePriority = async (req, res) => {
     });
 
     // ── Re-fetch with associations ────────────────────────────────────────
-    const updatedTask = await Task.findOne({
-      where: scopedTaskByIdQuery(req.user, id),
-      include: [
-        {
-          model: Project,
-          as: "project",
-          attributes: ["id", "title", "createdBy"],
-        },
-        {
-          model: User,
-          as: "assignee",
-          attributes: ["id", "name", "email"],
-        },
-      ],
+    const updatedTask = await findVisibleTask(req.user, id, {
+      include: [{ model: Project, as: "project", attributes: ["id", "title", "createdBy"] }],
     });
 
     return res.status(200).json({
@@ -669,20 +700,8 @@ const getTaskHistory = async (req, res) => {
     const { id } = req.validatedParams || req.params;
 
     // ── Find the task ─────────────────────────────────────────────────────
-    const task = await Task.findOne({
-      where: { [Op.and]: [{ id }, scopedTaskQuery(req.user)] },
-      include: [
-        {
-          model: Project,
-          as: "project",
-          attributes: ["id", "title", "createdBy"],
-        },
-        {
-          model: User,
-          as: "assignee",
-          attributes: ["id", "createdById"],
-        },
-      ],
+    const task = await findVisibleTask(req.user, id, {
+      include: [{ model: Project, as: "project", attributes: ["id", "title", "createdBy"] }],
     });
 
     if (!task) {
@@ -726,6 +745,8 @@ const getTaskHistory = async (req, res) => {
 module.exports = {
   createTask,
   getTasks,
+  updateTask,
+  deleteTask,
   updateStatus,
   updatePriority,
   updateProgress,

@@ -37,6 +37,32 @@ early navigation guard and is not an authorization boundary.
 5. Start the app with `npm run dev`. Server startup checks the migration state;
    it no longer runs `sequelize.sync({ alter: true })`.
 
+### Department and position hierarchy
+
+The hierarchy migration is `202611020001-department-hierarchy.js`; apply it
+with `npm run db:migrate` before deploying code that uses the new fields. It
+adds department, position, reporting, employee ID, activity, deadline history,
+and activity-log data while retaining existing records. Legacy accounts are
+placed in Operations/Employee by default, except existing `SUPER_ADMIN` and
+`MANAGER` roles, which are preserved as Managers.
+
+The member-details and deadline-extension features also require
+`202611020002-deadline-extension-requests.js`. Back up the database, then run
+`npm run db:migrate` to apply both pending hierarchy migrations before
+deployment. Member detail/update routes are `GET /api/users/members/:id` and
+`PATCH /api/users/members/:id`. Assigned users can submit deadline requests at
+`POST /api/tasks/:id/deadline-requests`; authorized supervisors can list and
+review them at `GET /api/tasks/deadline-requests` and
+`PUT /api/tasks/deadline-requests/:requestId`. Approval updates the task
+deadline and records deadline history in the same transaction.
+
+Public registration requires a department, position, and eligible same-
+department reporting manager (except Managers). A Manager signup is accepted
+only when its email exactly matches `SUPER_ADMIN_EMAIL`; configure that value
+before registering the initial Manager. New Managers receive the existing
+`SUPER_ADMIN` permission role. The API, not the browser, validates the selected
+reporting relationship.
+
 Ticket attachments are stored outside the web root in `storage/ticket-attachments`
 by default. Set `TICKET_ATTACHMENT_DIR` to a persistent, access-controlled
 directory in deployed environments, and include that directory in backups.
@@ -53,7 +79,7 @@ included development proxy so the cookie remains available.
 
 ### Permission matrix
 
-`✓` means the permission is granted. The authoritative grants are seeded from
+`✓` means the legacy permission is granted. These grants are seeded from
 [`src/lib/permissionCatalog.js`](./src/lib/permissionCatalog.js).
 
 | Permission | SUPER_ADMIN | ADMIN | MANAGER* | EMPLOYEE |
@@ -80,9 +106,24 @@ included development proxy so the cookie remains available.
 `MANAGER_ENABLED=true`. Resource scopes further restrict every `:own`
 permission. `ADMIN` is limited to owned projects, tasks they assigned, tasks
 assigned to their managed users, and tickets they created/assigned or that are
-assigned to their managed users. Employees
-can only read/update their assigned tasks. Only `SUPER_ADMIN` has system-wide
-permissions.
+assigned to their managed users. The department/position rules below apply to
+work-resource APIs independently of these legacy grants.
+
+### Hierarchy API access
+
+The authenticated user's department and position are loaded from the database
+for every request. Managers can access all departments; other positions are
+limited to themselves and lower-ranked users in their own department. Task and
+ticket filters can only narrow those scopes. Task assignment and updates,
+project task lists, ticket visibility and assignment, and team search/overview
+use these hierarchy checks on the server. Client-supplied role or department
+values do not grant access.
+
+The dashboard uses the same position hierarchy: Managers and positions with
+lower-ranked reports see the scoped team workspace and search; Interns see
+their personal task dashboard. Project creation is available to Managers,
+while task assignment options are limited to users below the signed-in
+position in the same department.
 
 ### Adding a permission
 
@@ -95,13 +136,24 @@ permissions.
    with the shared `can(user, "permission:key")` helper.
 5. Add role-matrix and scope tests under `src/tests`.
 
-### Phase 1 coverage and validation
+### Hierarchy API coverage and validation
 
-Phase 1 provides database-backed roles/permissions, shared `can()`, scoped
-project/task/ticket/user queries, route-level API authorization, server-side
-resource checks, Zod request validation for authentication and work endpoints,
-and focused RBAC/scope unit tests. User/team administration, the expanded task
-workflow, reports, audit log UI, and notifications remain in their later
-approved phases.
+The hierarchy API layer applies database-backed position scopes to task,
+project, ticket, and user/team endpoints. Work-resource API checks combine
+those scopes with the shared legacy permission framework where appropriate.
+Member details and updates, deadline extension requests, and URL-persisted team
+search filters use the same server-side hierarchy checks. Zod validation and
+focused tests cover registration, query filters, and permission boundaries.
+
+### Hierarchy verification checklist
+
+- [ ] Manager can view and edit members/tasks across departments.
+- [ ] Development Sub Manager cannot view, assign, or edit Legal users/tasks.
+- [ ] Team Lead cannot assign tasks to a Team Lead or higher position.
+- [ ] Intern and Employee cannot change a task deadline.
+- [ ] A forbidden direct API action returns HTTP 403.
+- [ ] Development Sub Manager using `?department=Legal` still sees only Development data.
+- [ ] Intern cannot search for or view other users, including by exact name.
+- [ ] Team search, task filters, and pagination work together and persist after refresh.
 
 Run the focused tests with `npm test`.
