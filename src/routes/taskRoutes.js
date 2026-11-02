@@ -76,6 +76,7 @@ router.delete(
 router.get(
   "/dashboard-summary",
   verifyToken,
+  validateRequest(taskQuery, "query"),
   taskController.getTaskDashboardSummary
 );
 router.get(

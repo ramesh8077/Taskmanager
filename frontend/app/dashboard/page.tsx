@@ -17,12 +17,31 @@ import MemberDashboard from "@/components/MemberDashboard";
 import TicketDashboard from "@/components/TicketDashboard";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/context/ThemeContext";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function DashboardPage() {
   const { user, logout } = useAuth();
   const { isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<"tasks" | "tickets">("tasks");
+  const [tabReady, setTabReady] = useState(false);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const tab = new URLSearchParams(window.location.search).get("dashboardTab");
+      if (tab === "tickets") setActiveTab("tickets");
+      setTabReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!tabReady) return;
+    const params = new URLSearchParams(window.location.search);
+    if (activeTab === "tickets") params.set("dashboardTab", "tickets");
+    else params.delete("dashboardTab");
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, [activeTab, tabReady]);
 
   return (
     <ProtectedRoute>

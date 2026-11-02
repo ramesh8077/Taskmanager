@@ -821,7 +821,13 @@ import TeamMemberOverview from "@/components/TeamMemberOverview";
 import { TaskProgressControl } from "@/components/TaskProgress";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
-interface Member { id: number; name: string; email: string }
+interface Member {
+  id: number;
+  name: string;
+  email: string;
+  department?: string;
+  position?: string;
+}
 interface Task {
   id: number;
   title: string;
@@ -970,6 +976,13 @@ function apiErrorMessage(error: unknown, fallback: string) {
   const message = response?.data?.message;
   return typeof message === "string" ? message : fallback;
 }
+const hierarchyRank: Record<string, number> = {
+  MANAGER: 5,
+  SUB_MANAGER: 4,
+  TEAM_LEAD: 3,
+  EMPLOYEE: 2,
+  INTERN: 1,
+};
 function ProgressCircle({ completed, total, label, size }: { completed: number; total: number; label: string; size: number }) {
   const percentage = total ? Math.min(100, Math.max(0, Math.round(completed / total * 100))) : 0;
   return <div className="aw-ring" style={{ width: size, height: size }} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={total ? `${percentage} percent, ${completed} of ${total} tasks completed` : "No tasks yet"}><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="42" className="aw-ring-track" /><circle cx="50" cy="50" r="42" pathLength="100" className="aw-ring-value" strokeDasharray={`${percentage} 100`} transform="rotate(-90 50 50)" style={{ opacity: percentage ? 1 : 0 }} /></svg><div><strong style={{ fontSize: size > 100 ? 30 : 18 }}>{percentage}%</strong>{size > 100 && <span>{total ? "completed" : "no tasks yet"}</span>}</div></div>;
@@ -1091,6 +1104,8 @@ export default function AdminDashboard() {
   const [submitting, setSubmitting] = useState(false);
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
   const [completingSubmitting, setCompletingSubmitting] = useState(false);
+  const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [taskEditForm, setTaskEditForm] = useState({ title: "", description: "", dueDate: "", priority: "Medium", reason: "" });
   const [projectForm, setProjectForm] = useState({ title: "", description: "" });
   const [taskForm, setTaskForm] = useState({ title: "", description: "", dueDate: "", projectId: "", assignedTo: "", priority: "Medium" });
   const [loadError, setLoadError] = useState("");
@@ -1101,6 +1116,7 @@ export default function AdminDashboard() {
   const [taskTotal, setTaskTotal] = useState(0);
   const [taskLoading, setTaskLoading] = useState(false);
   const [filtersReady, setFiltersReady] = useState(false);
+  const [prefillTaskAssignee, setPrefillTaskAssignee] = useState("");
   const [updatingIds, setUpdatingIds] = useState<number[]>([]);
   const [activeAdminSection, setActiveAdminSection] = useState<"workspace" | "members">("workspace");
   const requestId = useRef(0);
@@ -1174,6 +1190,8 @@ export default function AdminDashboard() {
       const sortBy = params.get("taskSortBy") || "createdAt";
       const sortOrder = params.get("taskSortOrder") || "DESC";
       const rawPage = Number(params.get("taskPage") || 1);
+      const requestedAssignee = params.get("newTaskFor") || "";
+      if (/^\d+$/.test(requestedAssignee)) setPrefillTaskAssignee(requestedAssignee);
       setFilters({
         search: params.get("taskSearch") || "",
         statuses: ["Pending", "In-Progress", "Completed"].includes(status) ? [status] : [],
@@ -1188,6 +1206,25 @@ export default function AdminDashboard() {
     }, 0);
     return () => window.clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    if (!isManager || !hasLoaded || !prefillTaskAssignee) return;
+    const timer = window.setTimeout(() => {
+      if (!members.some((member) => String(member.id) === prefillTaskAssignee)) {
+        toast.error("This member is not currently assignable.");
+        setPrefillTaskAssignee("");
+        return;
+      }
+      setTaskForm((current) => ({ ...current, assignedTo: prefillTaskAssignee }));
+      setShowTaskModal(true);
+      setPrefillTaskAssignee("");
+      const params = new URLSearchParams(window.location.search);
+      params.delete("newTaskFor");
+      const query = params.toString();
+      window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [hasLoaded, isManager, members, prefillTaskAssignee]);
 
   useEffect(() => {
     if (!filtersReady) return;
@@ -1335,6 +1372,49 @@ export default function AdminDashboard() {
       endUpdate(taskId);
     }
   };
+  const handleTaskEdit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!editingTask) return;
+    const deadlineChanged = taskEditForm.dueDate !== editingTask.dueDate.slice(0, 10);
+    if (deadlineChanged && !taskEditForm.reason.trim()) {
+      toast.error("Add a reason when changing the task deadline.");
+      return;
+    }
+    try {
+      setSubmitting(true);
+      const { data } = await API.put(`/tasks/${editingTask.id}`, {
+        title: taskEditForm.title,
+        description: taskEditForm.description || null,
+        dueDate: taskEditForm.dueDate,
+        priority: taskEditForm.priority,
+        ...(deadlineChanged ? { reason: taskEditForm.reason } : {}),
+      });
+      if (!data.success) throw new Error(data.message || "The task was not updated.");
+      toast.success("Task updated.");
+      setEditingTask(null);
+      await fetchData();
+    } catch (error: unknown) {
+      toast.error(apiErrorMessage(error, "Failed to update task."));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const canEditAssignedTask = (task: Task) =>
+    isManager ||
+    (!!user &&
+      !!task.assignee &&
+      task.assignee.department === user.department &&
+      hierarchyRank[user.position] > hierarchyRank[task.assignee.position || ""]);
+  const beginEditingTask = (task: Task) => {
+    setEditingTask(task);
+    setTaskEditForm({
+      title: task.title,
+      description: task.description || "",
+      dueDate: task.dueDate.slice(0, 10),
+      priority: task.priority,
+      reason: "",
+    });
+  };
   const completedCount = dashboardData?.summary.completed ?? 0;
   const activeCount = dashboardData?.summary.inProgress ?? 0;
   const pendingCount = dashboardData?.summary.pending ?? 0;
@@ -1450,13 +1530,65 @@ export default function AdminDashboard() {
             <label>Sort by<select value={filters.sortBy} onChange={e => updateFilters(f => ({ ...f, sortBy: e.target.value as FilterState["sortBy"] }))}><option value="createdAt">Created date</option><option value="dueDate">Due date</option><option value="priority">Priority</option><option value="title">Title</option></select></label>
           </div>
           <div className="aw-filter-bottom"><label className="aw-check"><input type="checkbox" checked={filters.overdue} onChange={e => updateFilters(f => ({ ...f, overdue: e.target.checked }))} />Overdue only</label><button className="aw-link" onClick={() => updateFilters(f => ({ ...f, sortOrder: f.sortOrder === "ASC" ? "DESC" : "ASC" }))}>{filters.sortOrder === "ASC" ? "↑ Ascending" : "↓ Descending"}</button><button className="aw-link" onClick={clearFilters}>Reset filters</button><span className="aw-muted aw-small" aria-live="polite">{taskTotal ? `${Math.min((currentPage - 1) * 10 + 1, taskTotal)}–${Math.min(currentPage * 10, taskTotal)} of ${taskTotal} tasks` : "0 tasks"}</span></div>
-          {!visibleTasks.length ? <div className="aw-empty"><h3>{taskTotal ? "No matching tasks" : hasLoaded ? "No tasks yet" : "Tasks unavailable"}</h3><p className="aw-muted">{taskTotal ? "Try another search or reset your filters." : hasLoaded ? "Create a task to start tracking progress." : "Retry loading the dashboard."}</p>{taskTotal > 0 && <button className="aw-button" onClick={clearFilters}>Reset filters</button>}</div> : <div className="aw-table-scroll" tabIndex={0} role="region" aria-label="Tasks table, scroll horizontally on small screens"><table className="aw-table"><thead><tr>{["Task", "Assignee", "Project", "Priority", "Status", "Progress", "Due date", "History"].map(title => <th scope="col" key={title}>{title}</th>)}</tr></thead><tbody>{visibleTasks.map(task => <tr key={task.id}><td><span className="aw-small aw-muted">#{task.id}</span><button type="button" className="aw-task-title" onClick={() => setTimelineTaskId(task.id)}>{task.title}</button>{task.description && <p className="aw-task-description aw-muted" title={task.description}>{task.description}</p>}</td><td><div className="aw-assignee"><span className="aw-avatar">{task.assignee?.name?.charAt(0) || "?"}</span><span>{task.assignee?.name || "Unassigned"}</span></div></td><td>{task.project?.title || projects.find(project => belongsToProject(task, String(project.id)))?.title || "—"}</td><td><select className="aw-table-select" aria-label={`Priority for ${task.title}`} value={task.priority} disabled={updatingIds.includes(task.id) || loading || taskLoading} onChange={e => void handlePriorityUpdate(task.id, e.target.value)}>{["Low", "Medium", "High", "Urgent"].map(value => <option key={value}>{value}</option>)}</select></td><td><select className={`aw-table-select aw-status-${task.status.toLowerCase()}`} aria-label={`Status for ${task.title}`} value={task.status} disabled={updatingIds.includes(task.id) || loading || taskLoading} onChange={e => void handleStatusUpdate(task.id, e.target.value)}>{["Pending", "In-Progress", "Completed"].map(value => <option key={value}>{value}</option>)}</select></td><td><TaskProgressControl progress={task.status === "Completed" ? 100 : task.progress || 0} status={task.status} disabled={updatingIds.includes(task.id) || loading || taskLoading} onSave={(progress) => handleProgressUpdate(task.id, progress)} size={42} /></td><td><span>{formatDate(task.dueDate)}</span>{isOverdue(task) && <span className="aw-overdue aw-danger">Overdue</span>}</td><td><button className="aw-button aw-history" aria-label={`View history for ${task.title}`} onClick={() => setTimelineTaskId(task.id)}>View</button></td></tr>)}</tbody></table></div>}
+          {!visibleTasks.length ? (
+            <div className="aw-empty">
+              <h3>{taskTotal ? "No matching tasks" : hasLoaded ? "No tasks yet" : "Tasks unavailable"}</h3>
+              <p className="aw-muted">{taskTotal ? "Try another search or reset your filters." : hasLoaded ? "Create a task to start tracking progress." : "Retry loading the dashboard."}</p>
+              {taskTotal > 0 && <button className="aw-button" onClick={clearFilters}>Reset filters</button>}
+            </div>
+          ) : (
+            <div className="aw-table-scroll" tabIndex={0} role="region" aria-label="Tasks table, scroll horizontally on small screens">
+              <table className="aw-table">
+                <thead>
+                  <tr>{["Task", "Assignee", "Project", "Priority", "Status", "Progress", "Due date", "Actions"].map(title => <th scope="col" key={title}>{title}</th>)}</tr>
+                </thead>
+                <tbody>
+                  {visibleTasks.map(task => (
+                    <tr key={task.id}>
+                      <td><span className="aw-small aw-muted">#{task.id}</span><button type="button" className="aw-task-title" onClick={() => setTimelineTaskId(task.id)}>{task.title}</button>{task.description && <p className="aw-task-description aw-muted" title={task.description}>{task.description}</p>}</td>
+                      <td><div className="aw-assignee"><span className="aw-avatar">{task.assignee?.name?.charAt(0) || "?"}</span><span>{task.assignee?.name || "Unassigned"}</span></div></td>
+                      <td>{task.project?.title || projects.find(project => belongsToProject(task, String(project.id)))?.title || "—"}</td>
+                      <td><select className="aw-table-select" aria-label={`Priority for ${task.title}`} value={task.priority} disabled={updatingIds.includes(task.id) || loading || taskLoading} onChange={e => void handlePriorityUpdate(task.id, e.target.value)}>{["Low", "Medium", "High", "Urgent"].map(value => <option key={value}>{value}</option>)}</select></td>
+                      <td><select className={`aw-table-select aw-status-${task.status.toLowerCase()}`} aria-label={`Status for ${task.title}`} value={task.status} disabled={updatingIds.includes(task.id) || loading || taskLoading} onChange={e => void handleStatusUpdate(task.id, e.target.value)}>{["Pending", "In-Progress", "Completed"].map(value => <option key={value}>{value}</option>)}</select></td>
+                      <td><TaskProgressControl progress={task.status === "Completed" ? 100 : task.progress || 0} status={task.status} disabled={updatingIds.includes(task.id) || loading || taskLoading} onSave={(progress) => handleProgressUpdate(task.id, progress)} size={42} /></td>
+                      <td><span>{formatDate(task.dueDate)}</span>{isOverdue(task) && <span className="aw-overdue aw-danger">Overdue</span>}</td>
+                      <td className="flex items-center gap-2">
+                        <button className="aw-button aw-history" aria-label={`View history for ${task.title}`} onClick={() => setTimelineTaskId(task.id)}>History</button>
+                        {canEditAssignedTask(task) && <button className="aw-button aw-history" aria-label={`Edit ${task.title}`} onClick={() => beginEditingTask(task)}>Edit</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
           <footer className="aw-pagination"><span className="aw-muted aw-small">{taskTotal ? `${(currentPage - 1) * 10 + 1}–${Math.min(currentPage * 10, taskTotal)} of ${taskTotal}` : "0 tasks"}</span><div className="aw-actions"><button className="aw-button" disabled={currentPage === 1 || taskLoading} onClick={() => setPage(currentPage - 1)}>Previous</button><span className="aw-small">{currentPage} / {pageCount}</span><button className="aw-button" disabled={currentPage === pageCount || taskLoading} onClick={() => setPage(currentPage + 1)}>Next</button></div></footer>
         </div>
       </section>
       {/* ── Modals ────────────────────────────────────────────────────────── */}
       {completingTask && <CompleteTaskModal taskId={completingTask.id} taskTitle={completingTask.title} currentUserName={user?.name || ""} onConfirm={handleCompleteConfirm} onCancel={() => { if (!completingSubmitting) setCompletingTask(null); }} submitting={completingSubmitting} />}
       {timelineTaskId && <TaskTimeline taskId={timelineTaskId} onClose={() => setTimelineTaskId(null)} />}
+      {editingTask && (
+        <CreationDialog title="Edit task" subtitle="Update task details. A reason is required when changing its deadline." isDark={isDark} busy={submitting} onClose={() => setEditingTask(null)}>
+          <form onSubmit={handleTaskEdit}>
+            <fieldset className="creation-fields" disabled={submitting}>
+              <div><label className="creation-label" htmlFor="edit-task-title">Task title</label><input id="edit-task-title" required minLength={3} maxLength={200} className="creation-input" value={taskEditForm.title} onChange={(event) => setTaskEditForm((current) => ({ ...current, title: event.target.value }))} /></div>
+              <div><label className="creation-label" htmlFor="edit-task-description">Description</label><textarea id="edit-task-description" maxLength={10000} className="creation-input" value={taskEditForm.description} onChange={(event) => setTaskEditForm((current) => ({ ...current, description: event.target.value }))} /></div>
+              <div className="creation-grid">
+                <div><label className="creation-label" htmlFor="edit-task-deadline">Deadline</label><input id="edit-task-deadline" required type="date" className="creation-input" value={taskEditForm.dueDate} onChange={(event) => setTaskEditForm((current) => ({ ...current, dueDate: event.target.value }))} /></div>
+                <div><label className="creation-label" htmlFor="edit-task-priority">Priority</label><select id="edit-task-priority" className="creation-input" value={taskEditForm.priority} onChange={(event) => setTaskEditForm((current) => ({ ...current, priority: event.target.value }))}>{["Low", "Medium", "High", "Urgent"].map((priority) => <option key={priority}>{priority}</option>)}</select></div>
+              </div>
+              {taskEditForm.dueDate !== editingTask.dueDate.slice(0, 10) && (
+                <div><label className="creation-label" htmlFor="edit-task-reason">Deadline change reason</label><textarea id="edit-task-reason" required minLength={5} maxLength={2000} className="creation-input" value={taskEditForm.reason} onChange={(event) => setTaskEditForm((current) => ({ ...current, reason: event.target.value }))} /></div>
+              )}
+            </fieldset>
+            <div className="creation-footer">
+              <button type="button" disabled={submitting} onClick={() => setEditingTask(null)} className="creation-button">Cancel</button>
+              <button type="submit" disabled={submitting} className="creation-button creation-button-primary">{submitting ? "Saving…" : "Save changes"}</button>
+            </div>
+          </form>
+        </CreationDialog>
+      )}
       {showProjectModal && (
         <CreationDialog title="Create new project" subtitle="Give your team's next project a clear starting point." isDark={isDark} busy={submitting} onClose={() => setShowProjectModal(false)}>
           <form onSubmit={handleCreateProject}>

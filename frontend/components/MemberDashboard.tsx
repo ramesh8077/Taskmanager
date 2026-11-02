@@ -25,7 +25,7 @@ interface Task {
 }
   
 const isOverdue = (task: Task) =>
-  task.status !== "Completed" && new Date(task.dueDate) < new Date(new Date().toDateString());
+  task.status !== "Completed" && task.status !== "DONE" && new Date(task.dueDate) < new Date(new Date().toDateString());
 
 const statusStyle: Record<string, string> = {
   Pending: "bg-amber-500/15 text-amber-500 border-amber-500/20",
@@ -52,6 +52,10 @@ const DEFAULT_FILTERS: FilterState = {
 export default function MemberDashboard() {
   const { user } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [summary, setSummary] = useState({ total: 0, pending: 0, inProgress: 0, overdue: 0 });
+  const [page, setPage] = useState(1);
+  const [pageCount, setPageCount] = useState(1);
+  const [filtersReady, setFiltersReady] = useState(false);
   const [loading, setLoading] = useState(true);
   const [updatingId, setUpdatingId] = useState<number | null>(null);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
@@ -66,7 +70,8 @@ export default function MemberDashboard() {
       setLoading(true);
       const params = new URLSearchParams();
       params.set("assignedToMe", "true");
-      params.set("pageSize", "100");
+      params.set("page", String(page));
+      params.set("pageSize", "10");
       if (filters.search) params.set("search", filters.search);
       if (filters.statuses.length > 0) params.set("status", filters.statuses.join(","));
       if (filters.priorities.length > 0) params.set("priority", filters.priorities.join(","));
@@ -74,19 +79,73 @@ export default function MemberDashboard() {
       params.set("sortBy", filters.sortBy);
       params.set("sortOrder", filters.sortOrder);
 
-      const { data } = await API.get(`/tasks?${params.toString()}`);
+      const [{ data }, summaryResponse] = await Promise.all([
+        API.get(`/tasks?${params.toString()}`),
+        API.get("/tasks/dashboard-summary", { params: { assignedToMe: "true" } }),
+      ]);
       setTasks(data.data.tasks || []);
+      setPageCount(Math.max(1, data.data.pageCount || 1));
+      if (page > Math.max(1, data.data.pageCount || 1)) setPage(Math.max(1, data.data.pageCount || 1));
+      setSummary(summaryResponse.data.data.summary);
     } catch {
       toast.error("Failed to fetch your tasks.");
     } finally {
       setLoading(false);
     }
-  }, [filters]);
+  }, [filters, page]);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void fetchTasks(), 0);
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("myStatus") || "";
+      const priority = params.get("myPriority") || "";
+      const sortBy = params.get("mySortBy") || "createdAt";
+      const sortOrder = params.get("mySortOrder") || "DESC";
+      const rawPage = Number(params.get("myPage") || 1);
+      setFilters({
+        search: params.get("mySearch") || "",
+        statuses: ["Pending", "In-Progress", "Completed"].includes(status) ? [status] : [],
+        priorities: ["Low", "Medium", "High", "Urgent"].includes(priority) ? [priority] : [],
+        sortBy: ["createdAt", "dueDate", "priority", "status"].includes(sortBy) ? sortBy : "createdAt",
+        sortOrder: sortOrder === "ASC" ? "ASC" : "DESC",
+        overdue: params.get("myOverdue") === "true",
+      });
+      setPage(Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1);
+      setFiltersReady(true);
+    }, 0);
     return () => window.clearTimeout(timer);
-  }, [fetchTasks]);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const params = new URLSearchParams(window.location.search);
+    const values: Record<string, string> = {
+      mySearch: filters.search.trim(),
+      myStatus: filters.statuses[0] || "",
+      myPriority: filters.priorities[0] || "",
+      myOverdue: filters.overdue ? "true" : "",
+      mySortBy: filters.sortBy !== "createdAt" ? filters.sortBy : "",
+      mySortOrder: filters.sortOrder !== "DESC" ? filters.sortOrder : "",
+      myPage: page > 1 ? String(page) : "",
+    };
+    for (const [key, value] of Object.entries(values)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, [filtersReady, filters, page]);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const timer = window.setTimeout(() => void fetchTasks(), filters.search ? 200 : 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchTasks, filtersReady, filters.search]);
+
+  const updateFilters = (next: FilterState) => {
+    setFilters(next);
+    setPage(1);
+  };
 
   const handleStatusUpdate = async (taskId: number, newStatus: string) => {
     if (newStatus === "Completed") {
@@ -100,6 +159,7 @@ export default function MemberDashboard() {
       if (data.success) {
         toast.success(`Status updated to "${newStatus}"`);
         setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, progress: newStatus === "Pending" || t.status === "Completed" ? 0 : t.progress } : t)));
+        void fetchTasks();
       }
     } catch (err: unknown) {
       toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message || "Failed to update status.");
@@ -121,6 +181,7 @@ export default function MemberDashboard() {
         toast.success(`Task "${completingTask.title}" marked as completed!`);
         setTasks((prev) => prev.map((t) => t.id === completingTask.id ? { ...t, status: "Completed", progress: 100, completedBy, completedAt } : t));
         setCompletingTask(null);
+        void fetchTasks();
       }
     } catch (err: unknown) {
       toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message || "Failed to complete task.");
@@ -136,6 +197,7 @@ export default function MemberDashboard() {
       if (!data.success) throw new Error(data.message || "Progress was not saved.");
       setTasks((previous) => previous.map((task) => task.id === taskId ? { ...task, progress: data.data.task.progress, status: data.data.task.status } : task));
       toast.success("Task progress saved.");
+      void fetchTasks();
       return true;
     } catch (err: unknown) {
       const message = (err as { response?: { data?: { message?: string } }; message?: string }).response?.data?.message ||
@@ -147,7 +209,7 @@ export default function MemberDashboard() {
     }
   };
 
-  const overdueCount = tasks.filter(isOverdue).length;
+  const overdueCount = summary.overdue;
 
   if (loading && tasks.length === 0) return <SkeletonLoader count={4} />;
 
@@ -160,19 +222,19 @@ export default function MemberDashboard() {
   {[
     {
       label: "Total",
-      value: tasks.length,
+      value: summary.total,
       color: "from-indigo-500 to-indigo-700",
       icon: "📊",
     },
     {
       label: "Pending",
-      value: tasks.filter((t) => t.status === "Pending").length,
+      value: summary.pending,
       color: "from-amber-500 to-amber-700",
       icon: "⏳",
     },
     {
       label: "In Progress",
-      value: tasks.filter((t) => t.status === "In-Progress").length,
+      value: summary.inProgress,
       color: "from-blue-500 to-blue-700",
       icon: "🔄",
     },
@@ -208,7 +270,7 @@ export default function MemberDashboard() {
       )}
 
       {/* ── Task Filters ──────────────────────────────────────────────────── */}
-      <TaskFilters filters={filters} onChange={setFilters} taskCount={tasks.length} />
+      <TaskFilters filters={filters} onChange={updateFilters} taskCount={summary.total} />
 
       {/* ── Tasks Table ────────────────────────────────────────────────────── */}
       <section>
@@ -217,7 +279,7 @@ export default function MemberDashboard() {
         <div className="text-center py-16 bg-white rounded-2xl border border-slate-200">
   <p className="text-4xl mb-3">📋</p>
   <p className="text-slate-600 text-sm">
-    No tasks assigned to you yet.
+    {summary.total > 0 ? "No tasks match the selected filters." : "No tasks assigned to you yet."}
   </p>
 </div>
         ) : (
@@ -286,6 +348,15 @@ export default function MemberDashboard() {
                   })}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+        {summary.total > 0 && (
+          <div className="mt-4 flex items-center justify-between gap-4 text-sm t-text-muted">
+            <span>Page {page} of {pageCount}</span>
+            <div className="flex items-center gap-2">
+              <button type="button" className="rounded-lg border t-border-subtle px-3 py-2 disabled:opacity-50" disabled={page === 1 || loading} onClick={() => setPage((current) => current - 1)}>Previous</button>
+              <button type="button" className="rounded-lg border t-border-subtle px-3 py-2 disabled:opacity-50" disabled={page >= pageCount || loading} onClick={() => setPage((current) => current + 1)}>Next</button>
             </div>
           </div>
         )}

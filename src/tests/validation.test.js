@@ -28,6 +28,7 @@ test("public registration rejects client-supplied roles", () => {
 test("task query validation rejects unsupported statuses and fields", () => {
   assert.equal(taskQuery.safeParse({ status: "Completed,Pending" }).success, true);
   assert.equal(taskQuery.safeParse({ status: "Deleted" }).success, false);
+  assert.equal(taskQuery.safeParse({ sortBy: "title" }).success, true);
   assert.equal(taskQuery.safeParse({ status: "Pending", ownerId: 99 }).success, false);
 });
 

@@ -358,7 +358,14 @@ function MemberDetails({ id }: { id: number }) {
 
       {canEditMember && (
         <section className="rounded-2xl border t-border-subtle t-bg-card p-5">
-          <h2 className="text-lg font-semibold t-text-primary">Update member</h2>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-lg font-semibold t-text-primary">Update member</h2>
+            {user?.position === "MANAGER" && member.isActive && (
+              <Link href={`/dashboard?newTaskFor=${member.id}`} className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700">
+                Create task for member
+              </Link>
+            )}
+          </div>
           <form onSubmit={updateMember} className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4 lg:items-end">
             {user?.position === "MANAGER" && <>
               <label className="text-sm font-medium t-text-muted">

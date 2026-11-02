@@ -6,6 +6,7 @@ import API from "@/lib/axios";
 import SkeletonLoader from "@/components/SkeletonLoader";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
+import { DEPARTMENTS } from "../../shared/organization";
 
 type Priority = "P0" | "P1" | "P2";
 type TicketStatus = "Open" | "In-Progress" | "Resolved" | "Closed";
@@ -212,6 +213,7 @@ export default function TicketDashboard() {
   const [sort, setSort] = useState<TicketSort>("newest");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [filtersReady, setFiltersReady] = useState(false);
   const listRequestId = useRef(0);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -257,6 +259,57 @@ export default function TicketDashboard() {
     "rounded-xl border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800";
 
   useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const search = (params.get("ticketQ") || "").slice(0, 100);
+      const status = params.get("ticketStatus") || "";
+      const priority = params.get("ticketPriority") || "";
+      const department = params.get("ticketDepartment") || "";
+      const assignee = params.get("ticketAssignee") || "";
+      const view = params.get("ticketView") || "";
+      const sortValue = params.get("ticketSort") || "";
+      const sizeValue = Number(params.get("ticketPageSize") || 20);
+      const pageValue = Number(params.get("ticketPage") || 1);
+      setSearchTerm(search);
+      setDebouncedSearch(search.trim());
+      setStatusFilter(["Open", "In-Progress", "Resolved", "Closed"].includes(status) ? status : "");
+      setPriorityFilter(["P0", "P1", "P2"].includes(priority) ? priority : "");
+      setDepartmentFilter((DEPARTMENTS as readonly string[]).includes(department) ? department : "");
+      setAssigneeFilter(assignee === "unassigned" || /^\d+$/.test(assignee) ? assignee : "");
+      setViewFilter(["assigned", "created"].includes(view) ? view : "");
+      setSort((["newest", "oldest", "priority", "deadline"] as string[]).includes(sortValue) ? sortValue as TicketSort : "newest");
+      setOverdueOnly(params.get("ticketOverdue") === "true");
+      setPageSize([10, 20, 50, 100].includes(sizeValue) ? sizeValue : 20);
+      setPage(Number.isSafeInteger(pageValue) && pageValue > 0 ? pageValue : 1);
+      setFiltersReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const params = new URLSearchParams(window.location.search);
+    const values: Record<string, string> = {
+      ticketQ: searchTerm.trim(),
+      ticketStatus: statusFilter,
+      ticketPriority: priorityFilter,
+      ticketDepartment: departmentFilter,
+      ticketAssignee: assigneeFilter,
+      ticketView: viewFilter,
+      ticketSort: sort !== "newest" ? sort : "",
+      ticketOverdue: overdueOnly ? "true" : "",
+      ticketPage: page > 1 ? String(page) : "",
+      ticketPageSize: pageSize !== 20 ? String(pageSize) : "",
+    };
+    for (const [key, value] of Object.entries(values)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, [filtersReady, searchTerm, statusFilter, priorityFilter, departmentFilter, assigneeFilter, viewFilter, sort, overdueOnly, page, pageSize]);
+
+  useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedSearch(searchTerm.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [searchTerm]);
@@ -282,7 +335,10 @@ export default function TicketDashboard() {
       if (requestId !== listRequestId.current) return;
       const result = response.data.data;
       setTickets(result.tickets || []);
-      setTotalFiltered(result.totalFiltered ?? result.tickets?.length ?? 0);
+      const filteredCount = result.totalFiltered ?? result.tickets?.length ?? 0;
+      setTotalFiltered(filteredCount);
+      const requestedPageCount = Math.max(1, Math.ceil(filteredCount / pageSize));
+      if (page > requestedPageCount) setPage(requestedPageCount);
       setTotalAbsolute(result.totalAbsolute ?? 0);
       setSummary({ ...emptySummary, ...result.summary });
       if (result.departments) {
@@ -346,9 +402,10 @@ export default function TicketDashboard() {
   }, []);
 
   useEffect(() => {
+    if (!filtersReady) return;
     const timer = window.setTimeout(() => void fetchTickets(), 0);
     return () => window.clearTimeout(timer);
-  }, [fetchTickets]);
+  }, [fetchTickets, filtersReady]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

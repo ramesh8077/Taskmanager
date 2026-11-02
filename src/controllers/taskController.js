@@ -304,10 +304,12 @@ const getTasks = async (req, res) => {
 
 const getTaskDashboardSummary = async (req, res) => {
   try {
+    const filters = req.validatedQuery || req.query;
     const { where } = await buildTaskQuery({
       actor: req.user,
       User,
       DeadlineHistory,
+      filters,
     });
     const today = new Date().toISOString().slice(0, 10);
     const atRiskThrough = new Date();
