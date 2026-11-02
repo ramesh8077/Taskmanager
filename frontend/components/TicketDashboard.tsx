@@ -17,6 +17,8 @@ interface UserRef {
   name: string;
   email?: string;
   team?: string;
+  department?: string;
+  position?: string;
 }
 
 interface HistoryEntry {
@@ -232,6 +234,7 @@ export default function TicketDashboard() {
   const [reopenReason, setReopenReason] = useState("");
   const [showReopenForm, setShowReopenForm] = useState(false);
   const [deadlineValue, setDeadlineValue] = useState("");
+  const [deadlineReason, setDeadlineReason] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -507,9 +510,11 @@ export default function TicketDashboard() {
     setSubmitting(true);
     try {
       await API.put(`/tickets/${viewTicket.id}/deadline`, {
-        deadline: deadlineValue || null,
+        deadline: deadlineValue,
+        reason: deadlineReason,
       });
       toast.success("Deadline updated.");
+      setDeadlineReason("");
       await refreshTicketDetail(viewTicket.id);
       await fetchTickets();
       await fetchNotifications();
@@ -615,6 +620,25 @@ export default function TicketDashboard() {
   const can = (permission: string) => Boolean(user?.permissions.includes(permission));
   const isAdmin = user?.role === "ADMIN" || user?.role === "SUPER_ADMIN";
   const canAssignTickets = can("ticket:assign");
+  const positionRank: Record<string, number> = {
+    MANAGER: 5, SUB_MANAGER: 4, TEAM_LEAD: 3, EMPLOYEE: 2, INTERN: 1,
+  };
+  const canManageTicket = (ticket: Ticket) => {
+    if (!user) return false;
+    if (user.position === "MANAGER") return true;
+    if (ticket.assignee) {
+      return ticket.assignee.department === user.department &&
+        positionRank[user.position] > positionRank[ticket.assignee.position || ""];
+    }
+    return Number(ticket.creator?.id) === Number(user.id);
+  };
+  const canEditTicketDeadline = (ticket: Ticket) =>
+    Boolean(user && (
+      user.position === "MANAGER" ||
+      (ticket.assignee &&
+        ticket.assignee.department === user.department &&
+        positionRank[user.position] > positionRank[ticket.assignee.position || ""])
+    ));
   const canWorkOnTicket = (ticket: Ticket) =>
     isAdmin || Number(ticket.assignedTo ?? ticket.assignee?.id) === Number(user?.id);
   const canCloseTicket = (ticket: Ticket) =>
@@ -949,14 +973,17 @@ export default function TicketDashboard() {
                   </div>
 
                   <div className="grid gap-4 lg:grid-cols-2">
-                    {canAssignTickets && <label className="block text-xs font-bold">Assignee
+                    {canManageTicket(viewTicket) && <label className="block text-xs font-bold">Assignee
                       <select disabled={submitting} className={`${inputClass} mt-1.5`} value={viewTicket.assignedTo ?? viewTicket.assignee?.id ?? ""} onChange={(event) => void updateAssignee(viewTicket, event.target.value)}>
                         <option value="">Unassigned</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
                       </select>
                     </label>}
-                    {canAssignTickets && <form onSubmit={updateDeadline} className="flex items-end gap-2">
-                      <label className="block min-w-0 flex-1 text-xs font-bold">Deadline
-                        <input type="date" className={`${inputClass} mt-1.5`} value={deadlineValue.slice(0, 10)} onChange={(event) => setDeadlineValue(event.target.value)} />
+                    {canEditTicketDeadline(viewTicket) && <form onSubmit={updateDeadline} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                      <label className="block min-w-0 text-xs font-bold">Deadline
+                        <input type="date" required className={`${inputClass} mt-1.5`} value={deadlineValue.slice(0, 10)} onChange={(event) => setDeadlineValue(event.target.value)} />
+                      </label>
+                      <label className="block min-w-0 text-xs font-bold">Reason
+                        <input type="text" required minLength={1} maxLength={2000} className={`${inputClass} mt-1.5`} value={deadlineReason} onChange={(event) => setDeadlineReason(event.target.value)} />
                       </label>
                       <button type="submit" disabled={submitting} className={buttonClass}>Save</button>
                     </form>}

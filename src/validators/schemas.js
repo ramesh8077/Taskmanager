@@ -164,7 +164,7 @@ const taskQuery = z
     createdTo: z.string().date().optional(),
     minProgress: z.coerce.number().int().min(0).max(100).optional(),
     maxProgress: z.coerce.number().int().min(0).max(100).optional(),
-    sortBy: z.enum(["dueDate", "priority", "status", "createdAt", "progress", "name"]).optional(),
+    sortBy: z.enum(["dueDate", "priority", "status", "createdAt", "progress", "name", "title"]).optional(),
     sortOrder: z.enum(["ASC", "DESC", "asc", "desc"]).optional(),
     department: z.string().trim().max(100).optional(),
     assigneePosition: z.enum(POSITIONS).optional(),
@@ -241,7 +241,10 @@ const ticketStatusBody = z.object({
   { message: "A resolution note is required.", path: ["resolutionNote"] }
 );
 const ticketAssignmentBody = z.object({ assignedTo: positiveId.nullable() }).strict();
-const ticketDeadlineBody = z.object({ deadline: z.string().date().nullable() }).strict();
+const ticketDeadlineBody = z.object({
+  deadline: z.string().date(),
+  reason: shortText(1, 2000),
+}).strict();
 const reopenTicketBody = z.object({ reason: shortText(1, 10000) }).strict();
 
 const ticketQuery = z

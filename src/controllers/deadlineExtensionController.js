@@ -7,6 +7,8 @@ const Task = db.Task;
 const User = db.User;
 const DeadlineExtensionRequest = db.DeadlineExtensionRequest;
 const DeadlineHistory = db.DeadlineHistory;
+const TaskHistory = db.TaskHistory;
+const ActivityLog = db.ActivityLog;
 
 async function createRequest(req, res) {
   try {
@@ -152,6 +154,14 @@ async function reviewRequest(req, res) {
       if (decision === "APPROVED") {
         request.task.dueDate = request.requestedDeadline;
         await request.task.save({ transaction });
+        await TaskHistory.create({
+          taskId: request.task.id,
+          changedBy: req.user.id,
+          field: "dueDate",
+          oldValue: request.currentDeadline,
+          newValue: request.requestedDeadline,
+          action: "deadline_changed",
+        }, { transaction });
         await DeadlineHistory.create({
           taskId: request.task.id,
           oldDeadline: request.currentDeadline,
@@ -160,6 +170,17 @@ async function reviewRequest(req, res) {
           reason: responseNote
             ? `${request.reason}\n\nReview: ${responseNote}`
             : request.reason,
+        }, { transaction });
+        await ActivityLog.create({
+          actorId: req.user.id,
+          action: "task.deadline_extended",
+          entityType: "task",
+          entityId: String(request.task.id),
+          metadata: {
+            oldDeadline: request.currentDeadline,
+            newDeadline: request.requestedDeadline,
+            requestId: request.id,
+          },
         }, { transaction });
       }
       await request.save({ transaction });

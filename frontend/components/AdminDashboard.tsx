@@ -822,7 +822,6 @@ import { TaskProgressControl } from "@/components/TaskProgress";
 import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
 interface Member { id: number; name: string; email: string }
-const requestedMemberNames = ["Ramesh", "Dishal", "Priyanka", "Rashi", "Dhruv", "Nisha"];
 interface Task {
   id: number;
   title: string;
@@ -846,8 +845,33 @@ interface Project {
   tasks?: Task[];
   creator?: { id: number; name: string; email: string }
 }
+interface DashboardSummary {
+  total: number;
+  completed: number;
+  inProgress: number;
+  pending: number;
+  overdue: number;
+  completionRate: number;
+}
+interface DashboardActivity {
+  id: number;
+  taskId: number;
+  action: string;
+  field: string;
+  newValue: string | null;
+  createdAt: string;
+  changedByUser?: { name: string } | null;
+  task?: { id: number; title: string };
+}
+interface DashboardData {
+  summary: DashboardSummary;
+  departments: { department: string; total: number; completed: number; inProgress: number; pending: number }[];
+  projectStats: { projectId: number; total: number; completed: number; overdue: number }[];
+  atRiskTasks: Task[];
+  activity: DashboardActivity[];
+}
 const isOverdue = (task: Task) =>
-  task.status !== "Completed" && new Date(task.dueDate) < new Date(new Date().toDateString());
+  task.status !== "Completed" && task.status !== "DONE" && new Date(task.dueDate) < new Date(new Date().toDateString());
 const DEFAULT_FILTERS: FilterState = {
   search: "",
   statuses: [],
@@ -941,6 +965,11 @@ function formatDate(value: string) {
   const date = new Date(value.includes("T") ? value : `${value}T00:00:00`);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" });
 }
+function apiErrorMessage(error: unknown, fallback: string) {
+  const response = (error as { response?: { data?: { message?: unknown } } } | null)?.response;
+  const message = response?.data?.message;
+  return typeof message === "string" ? message : fallback;
+}
 function ProgressCircle({ completed, total, label, size }: { completed: number; total: number; label: string; size: number }) {
   const percentage = total ? Math.min(100, Math.max(0, Math.round(completed / total * 100))) : 0;
   return <div className="aw-ring" style={{ width: size, height: size }} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={percentage} aria-valuetext={total ? `${percentage} percent, ${completed} of ${total} tasks completed` : "No tasks yet"}><svg viewBox="0 0 100 100" aria-hidden="true"><circle cx="50" cy="50" r="42" className="aw-ring-track" /><circle cx="50" cy="50" r="42" pathLength="100" className="aw-ring-value" strokeDasharray={`${percentage} 100`} transform="rotate(-90 50 50)" style={{ opacity: percentage ? 1 : 0 }} /></svg><div><strong style={{ fontSize: size > 100 ? 30 : 18 }}>{percentage}%</strong>{size > 100 && <span>{total ? "completed" : "no tasks yet"}</span>}</div></div>;
@@ -963,6 +992,7 @@ function DashboardStyles() {
     .aw-section-heading { margin-bottom:16px; }
     .aw-section-heading p { margin-top:4px; }
     .aw-card { min-width:0; border:1px solid var(--aw-line); border-radius:16px; background:var(--aw-card); box-shadow:0 2px 6px rgba(15,23,42,.025); }
+    .aw-border { border-color:var(--aw-line); }
     .aw-stats { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:16px; }
     .aw-stat { padding:20px; display:grid; gap:6px; }
     .aw-stat strong { font-size:32px; line-height:1.25; font-weight:750; color:var(--aw-text); }
@@ -985,6 +1015,7 @@ function DashboardStyles() {
     .aw-dot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
     .aw-track { flex:1; height:7px; background:var(--aw-line); border-radius:10px; overflow:hidden; }
     .aw-track span { display:block; height:100%; border-radius:10px; }
+    .aw-department-track { display:flex; }
     .aw-complete { background:#10b981; } .aw-active { background:#6366f1; } .aw-pending { background:#f59e0b; }
     .aw-projects { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
     .aw-project { padding:22px; display:flex; flex-direction:column; }
@@ -1051,6 +1082,7 @@ export default function AdminDashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<FilterState>(DEFAULT_FILTERS);
   const [timelineTaskId, setTimelineTaskId] = useState<number | null>(null);
@@ -1065,25 +1097,29 @@ export default function AdminDashboard() {
   const [hasLoaded, setHasLoaded] = useState(false);
   const [selectedProject, setSelectedProject] = useState("");
   const [page, setPage] = useState(1);
+  const [pageCount, setPageCount] = useState(1);
+  const [taskTotal, setTaskTotal] = useState(0);
+  const [taskLoading, setTaskLoading] = useState(false);
+  const [filtersReady, setFiltersReady] = useState(false);
   const [updatingIds, setUpdatingIds] = useState<number[]>([]);
   const [activeAdminSection, setActiveAdminSection] = useState<"workspace" | "members">("workspace");
   const requestId = useRef(0);
+  const taskRequestId = useRef(0);
   const updateLocks = useRef(new Set<number>());
   const taskSection = useRef<HTMLElement>(null);
-  // Keep the complete task response separate from the filtered table.
-  // Progress never changes just because the administrator changes a filter.
-  const fetchData = useCallback(async () => {
+  const fetchWorkspaceData = useCallback(async () => {
     const request = ++requestId.current;
     try {
       setLoading(true);
       setLoadError("");
-      const [pRes, tRes, mRes] = await Promise.all([
-        API.get("/projects"), API.get("/tasks"), API.get("/users/members"),
+      const [pRes, mRes, summaryRes] = await Promise.all([
+        API.get("/projects"), API.get("/users/members"),
+        API.get("/tasks/dashboard-summary"),
       ]);
       if (request !== requestId.current) return;
       setProjects(pRes.data.data.projects || []);
-      setTasks(tRes.data.data.tasks || []);
       setMembers(mRes.data.data.members || []);
+      setDashboardData(summaryRes.data.data as DashboardData);
       setHasLoaded(true);
     } catch {
       if (request === requestId.current) setLoadError("Could not refresh the dashboard. Please try again.");
@@ -1091,7 +1127,103 @@ export default function AdminDashboard() {
       if (request === requestId.current) setLoading(false);
     }
   }, []);
-  useEffect(() => { void fetchData(); return () => { requestId.current++; }; }, [fetchData]);
+
+  const fetchTasks = useCallback(async () => {
+    const request = ++taskRequestId.current;
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: "10",
+      sortBy: filters.sortBy,
+      sortOrder: filters.sortOrder,
+    });
+    if (filters.search.trim()) params.set("search", filters.search.trim());
+    if (filters.statuses.length) params.set("status", filters.statuses.join(","));
+    if (filters.priorities.length) params.set("priority", filters.priorities.join(","));
+    if (filters.overdue) params.set("overdue", "true");
+    if (selectedProject) params.set("projectId", selectedProject);
+    try {
+      setTaskLoading(true);
+      const { data } = await API.get(`/tasks?${params.toString()}`);
+      if (request !== taskRequestId.current) return;
+      const result = data.data;
+      setTasks(result.tasks || []);
+      setTaskTotal(result.total || 0);
+      setPageCount(Math.max(1, result.pageCount || 1));
+      if (page > Math.max(1, result.pageCount || 1)) setPage(Math.max(1, result.pageCount || 1));
+    } catch {
+      if (request === taskRequestId.current) setLoadError("Could not load tasks. Please try again.");
+    } finally {
+      if (request === taskRequestId.current) setTaskLoading(false);
+    }
+  }, [filters, page, selectedProject]);
+
+  useEffect(() => {
+    const requestCounter = requestId;
+    const timer = window.setTimeout(() => void fetchWorkspaceData(), 0);
+    return () => {
+      window.clearTimeout(timer);
+      requestCounter.current++;
+    };
+  }, [fetchWorkspaceData]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const status = params.get("taskStatus") || "";
+      const priority = params.get("taskPriority") || "";
+      const sortBy = params.get("taskSortBy") || "createdAt";
+      const sortOrder = params.get("taskSortOrder") || "DESC";
+      const rawPage = Number(params.get("taskPage") || 1);
+      setFilters({
+        search: params.get("taskSearch") || "",
+        statuses: ["Pending", "In-Progress", "Completed"].includes(status) ? [status] : [],
+        priorities: ["Low", "Medium", "High", "Urgent"].includes(priority) ? [priority] : [],
+        sortBy: ["createdAt", "dueDate", "priority", "title"].includes(sortBy) ? sortBy : "createdAt",
+        sortOrder: sortOrder === "ASC" ? "ASC" : "DESC",
+        overdue: params.get("taskOverdue") === "true",
+      });
+      setSelectedProject(/^\d+$/.test(params.get("taskProject") || "") ? params.get("taskProject") || "" : "");
+      setPage(Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1);
+      setFiltersReady(true);
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const params = new URLSearchParams(window.location.search);
+    const values: Record<string, string> = {
+      taskSearch: filters.search.trim(),
+      taskStatus: filters.statuses[0] || "",
+      taskPriority: filters.priorities[0] || "",
+      taskOverdue: filters.overdue ? "true" : "",
+      taskSortBy: filters.sortBy !== "createdAt" ? filters.sortBy : "",
+      taskSortOrder: filters.sortOrder !== "DESC" ? filters.sortOrder : "",
+      taskProject: selectedProject,
+      taskPage: page > 1 ? String(page) : "",
+    };
+    for (const [key, value] of Object.entries(values)) {
+      if (value) params.set(key, value);
+      else params.delete(key);
+    }
+    const query = params.toString();
+    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+  }, [filtersReady, filters, selectedProject, page]);
+
+  useEffect(() => {
+    if (!filtersReady) return;
+    const requestCounter = taskRequestId;
+    const timer = window.setTimeout(() => void fetchTasks(), filters.search ? 200 : 0);
+    return () => {
+      window.clearTimeout(timer);
+      requestCounter.current++;
+    };
+  }, [fetchTasks, filtersReady, filters.search]);
+
+  const fetchData = () => {
+    void fetchWorkspaceData();
+    void fetchTasks();
+  };
   const beginUpdate = (id: number) => {
     if (updateLocks.current.has(id)) return false;
     updateLocks.current.add(id);
@@ -1110,8 +1242,8 @@ export default function AdminDashboard() {
       const { data } = await API.post("/projects", projectForm);
       if (!data.success) throw new Error(data.message || "The update was not saved.");
       if (data.success) { toast.success("Project created!"); setShowProjectModal(false); setProjectForm({ title: "", description: "" }); fetchData(); }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to create project.");
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to create project."));
     } finally { setSubmitting(false); }
   };
   const handleCreateTask = async (e: React.FormEvent) => {
@@ -1126,8 +1258,8 @@ export default function AdminDashboard() {
       });
       if (!data.success) throw new Error(data.message || "The update was not saved.");
       if (data.success) { toast.success("Task created & assigned!"); setShowTaskModal(false); setTaskForm({ title: "", description: "", dueDate: "", projectId: "", assignedTo: "", priority: "Medium" }); fetchData(); }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to create task.");
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to create task."));
     } finally { setSubmitting(false); }
   };
   const handlePriorityUpdate = async (taskId: number, newPriority: string) => {
@@ -1138,9 +1270,10 @@ export default function AdminDashboard() {
       if (data.success) {
         toast.success(`Priority updated to "${newPriority}"`);
         setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, priority: newPriority } : t)));
+        void fetchData();
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to update priority.");
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to update priority."));
     } finally { endUpdate(taskId); }
   };
   const handleStatusUpdate = async (taskId: number, newStatus: string) => {
@@ -1156,9 +1289,10 @@ export default function AdminDashboard() {
       if (data.success) {
         toast.success(`Status updated to "${newStatus}"`);
         setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, progress: newStatus === "Pending" || t.status === "Completed" ? 0 : t.progress } : t)));
+        void fetchData();
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to update status.");
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to update status."));
     } finally { endUpdate(taskId); }
   };
   const handleCompleteConfirm = async ({ completedBy, completedAt }: { completedBy: string; completedAt: string }) => {
@@ -1174,10 +1308,11 @@ export default function AdminDashboard() {
       if (data.success) {
         toast.success(`Task "${completingTask.title}" marked as completed!`);
         setTasks((prev) => prev.map((t) => t.id === completingTask.id ? { ...t, status: "Completed", progress: 100, completedBy, completedAt } : t));
+        void fetchData();
         setCompletingTask(null);
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to complete task.");
+    } catch (err: unknown) {
+      toast.error(apiErrorMessage(err, "Failed to complete task."));
     } finally {
       setCompletingSubmitting(false);
       endUpdate(completingTask.id);
@@ -1189,6 +1324,7 @@ export default function AdminDashboard() {
       const { data } = await API.put(`/tasks/${taskId}/progress`, { progress });
       if (!data.success) throw new Error(data.message || "The update was not saved.");
       setTasks((previous) => previous.map((task) => task.id === taskId ? { ...task, progress: data.data.task.progress, status: data.data.task.status } : task));
+      void fetchData();
       toast.success("Task progress saved.");
       return true;
     } catch (err: unknown) {
@@ -1199,37 +1335,25 @@ export default function AdminDashboard() {
       endUpdate(taskId);
     }
   };
-  const completedCount = tasks.filter(t => t.status === "Completed").length;
-  const activeCount = tasks.filter(t => t.status === "In-Progress").length;
-  const pendingCount = tasks.filter(t => t.status === "Pending").length;
-  const overdueCount = tasks.filter(isOverdue).length;
-  const otherCount = tasks.length - completedCount - activeCount - pendingCount;
+  const completedCount = dashboardData?.summary.completed ?? 0;
+  const activeCount = dashboardData?.summary.inProgress ?? 0;
+  const pendingCount = dashboardData?.summary.pending ?? 0;
+  const overdueCount = dashboardData?.summary.overdue ?? 0;
+  const totalTaskCount = dashboardData?.summary.total ?? 0;
+  const otherCount = Math.max(0, totalTaskCount - completedCount - activeCount - pendingCount);
   const projectTaskIds = useMemo(() => new Map(projects.map(project => [String(project.id), new Set((project.tasks || []).map(task => task.id))])), [projects]);
   const belongsToProject = (task: Task, id: string) => String(task.project?.id ?? task.projectId ?? "") === id || !!projectTaskIds.get(id)?.has(task.id);
-  const filteredTasks = useMemo(() => {
-    const query = filters.search.trim().toLowerCase();
-    const result = tasks.filter(task =>
-      (!query || [task.title, task.description, task.assignee?.name, task.project?.title, String(task.id)].some(value => value?.toLowerCase().includes(query))) &&
-      (!filters.statuses.length || filters.statuses.includes(task.status)) &&
-      (!filters.priorities.length || filters.priorities.includes(task.priority)) &&
-      (!filters.overdue || isOverdue(task)) &&
-      (!selectedProject || String(task.project?.id ?? task.projectId ?? "") === selectedProject || projectTaskIds.get(selectedProject)?.has(task.id))
-    );
-    const priorities: Record<string, number> = { Low: 1, Medium: 2, High: 3, Urgent: 4 };
-    const direction = filters.sortOrder === "ASC" ? 1 : -1;
-    return result.sort((a, b) => {
-      let comparison = 0;
-      if (filters.sortBy === "title") comparison = a.title.localeCompare(b.title);
-      else if (filters.sortBy === "priority") comparison = (priorities[a.priority] || 0) - (priorities[b.priority] || 0);
-      else if (filters.sortBy === "dueDate") comparison = a.dueDate.localeCompare(b.dueDate);
-      else comparison = (Date.parse(a.createdAt || a.created_at || "") || a.id) - (Date.parse(b.createdAt || b.created_at || "") || b.id);
-      return direction * comparison;
-    });
-  }, [tasks, filters, selectedProject, projectTaskIds]);
-  useEffect(() => { setPage(1); }, [filters, selectedProject]);
-  const pageCount = Math.max(1, Math.ceil(filteredTasks.length / 10));
-  const currentPage = Math.min(page, pageCount);
-  const visibleTasks = filteredTasks.slice((currentPage - 1) * 10, currentPage * 10);
+  const filteredTasks = tasks;
+  const currentPage = page;
+  const visibleTasks = tasks;
+  const updateFilters = (update: (current: FilterState) => FilterState) => {
+    setFilters(update);
+    setPage(1);
+  };
+  const changeProject = (projectId: string) => {
+    setSelectedProject(projectId);
+    setPage(1);
+  };
   const clearFilters = () => { setFilters({ ...DEFAULT_FILTERS }); setSelectedProject(""); setPage(1); };
   const showProjectTasks = (id: number) => {
     setFilters({ ...DEFAULT_FILTERS }); setSelectedProject(String(id));
@@ -1268,34 +1392,66 @@ export default function AdminDashboard() {
       {activeAdminSection === "members" ? <TeamMemberOverview /> : <>
       {loadError && <div className="aw-error" role="alert">{loadError} {hasLoaded && "Showing the last loaded data."}<button className="aw-button" onClick={() => void fetchData()} disabled={loading}>Retry</button></div>}
       <div className="aw-stats">
-        {[{ label: "Total projects", value: projects.length, hint: "Across your workspace" }, { label: "Total tasks", value: tasks.length, hint: `${completedCount} completed` }, { label: "Team members", value: members.length, hint: "Available for assignment" }, { label: "Overdue tasks", value: overdueCount, hint: "Past due and still open" }].map(stat => <div className="aw-card aw-stat" key={stat.label}><p className="aw-muted">{stat.label}</p><strong className={stat.label === "Overdue tasks" && overdueCount ? "aw-danger" : ""}>{hasLoaded ? stat.value : "—"}</strong><span className="aw-muted">{stat.hint}</span></div>)}
+        {[{ label: "Total projects", value: projects.length, hint: "Across your workspace" }, { label: "Total tasks", value: totalTaskCount, hint: `${completedCount} completed` }, { label: "Team members", value: members.length, hint: "Available for assignment" }, { label: "Overdue tasks", value: overdueCount, hint: "Past due and still open" }].map(stat => <div className="aw-card aw-stat" key={stat.label}><p className="aw-muted">{stat.label}</p><strong className={stat.label === "Overdue tasks" && overdueCount ? "aw-danger" : ""}>{hasLoaded && dashboardData ? stat.value : "—"}</strong><span className="aw-muted">{stat.hint}</span></div>)}
       </div>
       <section className="aw-overview">
-        <div className="aw-card aw-completion"><div><p className="aw-eyebrow">WORKSPACE HEALTH</p><h2>Overall progress</h2><p className="aw-muted">{hasLoaded ? `${completedCount} of ${tasks.length} tasks completed` : "Waiting for task data"}</p><p className="aw-small aw-muted">Completion = completed tasks ÷ total tasks.<br />Search and filters do not affect this number.</p></div><ProgressCircle completed={completedCount} total={tasks.length} label="Overall task completion" size={148} /></div>
-        <div className="aw-card aw-breakdown"><div className="aw-section-heading"><h2>Task breakdown</h2><span className="aw-muted aw-small">Click a status to filter</span></div>{[{ label: "Completed", count: completedCount, tone: "complete" }, { label: "In-Progress", count: activeCount, tone: "active" }, { label: "Pending", count: pendingCount, tone: "pending" }].map(item => <button className="aw-status-row" key={item.label} onClick={() => filterStatus(item.label)}><span className={`aw-dot aw-${item.tone}`} /><span>{item.label === "In-Progress" ? "In progress" : item.label}</span><div className="aw-track"><span className={`aw-${item.tone}`} style={{ width: `${tasks.length ? item.count / tasks.length * 100 : 0}%` }} /></div><strong>{item.count}</strong></button>)}{otherCount > 0 && <p className="aw-small aw-muted">Other statuses: {otherCount}</p>}</div>
+        <div className="aw-card aw-completion"><div><p className="aw-eyebrow">WORKSPACE HEALTH</p><h2>Overall progress</h2><p className="aw-muted">{hasLoaded && dashboardData ? `${completedCount} of ${totalTaskCount} tasks completed` : "Waiting for task data"}</p><p className="aw-small aw-muted">Completion = completed tasks ÷ total tasks.<br />Search and filters do not affect this number.</p></div><ProgressCircle completed={completedCount} total={totalTaskCount} label="Overall task completion" size={148} /></div>
+        <div className="aw-card aw-breakdown"><div className="aw-section-heading"><h2>Task breakdown</h2><span className="aw-muted aw-small">Click a status to filter</span></div>{[{ label: "Completed", count: completedCount, tone: "complete" }, { label: "In-Progress", count: activeCount, tone: "active" }, { label: "Pending", count: pendingCount, tone: "pending" }].map(item => <button className="aw-status-row" key={item.label} onClick={() => filterStatus(item.label)}><span className={`aw-dot aw-${item.tone}`} /><span>{item.label === "In-Progress" ? "In progress" : item.label}</span><div className="aw-track"><span className={`aw-${item.tone}`} style={{ width: `${totalTaskCount ? item.count / totalTaskCount * 100 : 0}%` }} /></div><strong>{hasLoaded && dashboardData ? item.count : "—"}</strong></button>)}{otherCount > 0 && <p className="aw-small aw-muted">Other statuses: {otherCount}</p>}</div>
+      </section>
+      <section className="aw-overview">
+        <div className="aw-card aw-breakdown">
+          <div className="aw-section-heading"><div><h2>Department workload</h2><p className="aw-muted aw-small">Task status across departments in your permitted scope.</p></div></div>
+          {!dashboardData?.departments.length ? <p className="aw-muted aw-small">{hasLoaded ? "No department task data yet." : "Department data unavailable."}</p> : dashboardData.departments.map((department) => (
+            <div key={department.department} className="mb-4">
+              <div className="flex items-center justify-between gap-3"><strong>{department.department}</strong><span className="aw-muted aw-small">{department.total} tasks</span></div>
+              <div className="aw-track aw-department-track mt-2" role="img" aria-label={`${department.department}: ${department.completed} completed, ${department.inProgress} in progress, ${department.pending} pending`}>
+                <span className="aw-complete" style={{ width: `${department.total ? department.completed / department.total * 100 : 0}%` }} />
+                <span className="aw-active" style={{ width: `${department.total ? department.inProgress / department.total * 100 : 0}%` }} />
+                <span className="aw-pending" style={{ width: `${department.total ? department.pending / department.total * 100 : 0}%` }} />
+              </div>
+              <p className="aw-muted aw-small mt-1">{department.completed} completed · {department.inProgress} in progress · {department.pending} pending</p>
+            </div>
+          ))}
+        </div>
+        <div className="aw-card aw-breakdown">
+          <div className="aw-section-heading"><div><h2>At-risk tasks</h2><p className="aw-muted aw-small">Overdue or due within the next two days.</p></div></div>
+          {!dashboardData?.atRiskTasks.length ? <p className="aw-muted aw-small">{hasLoaded ? "No at-risk tasks." : "Task data unavailable."}</p> : <ul className="space-y-3">
+            {dashboardData.atRiskTasks.map((task) => <li key={task.id} className="flex items-start justify-between gap-3 border-b aw-border pb-3 last:border-0">
+              <div className="min-w-0"><button className="aw-link text-left" onClick={() => setTimelineTaskId(task.id)}>{task.title}</button><p className="aw-muted aw-small">{task.assignee?.name || "Unassigned"} · due {formatDate(task.dueDate)}</p></div>
+              <span className={`aw-pill ${isOverdue(task) ? "aw-danger" : ""}`}>{isOverdue(task) ? "Overdue" : "Due soon"}</span>
+            </li>)}
+          </ul>}
+        </div>
+      </section>
+      <section className="aw-card aw-breakdown">
+        <div className="aw-section-heading"><div><h2>Recent activity</h2><p className="aw-muted aw-small">Latest task changes visible to you.</p></div></div>
+        {!dashboardData?.activity.length ? <p className="aw-muted aw-small">{hasLoaded ? "No recent task activity." : "Activity data unavailable."}</p> : <ul className="space-y-3">
+          {dashboardData.activity.map((item) => <li key={item.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b aw-border pb-3 last:border-0">
+            <p><span className="font-semibold">{item.changedByUser?.name || "A team member"}</span>{" "}{item.action || "updated"}{" "}<button className="aw-link" onClick={() => setTimelineTaskId(item.task?.id || item.taskId)}>{item.task?.title || `Task #${item.taskId}`}</button>{item.newValue ? `: ${item.newValue}` : ""}</p>
+            <time className="aw-muted aw-small" dateTime={item.createdAt}>{new Date(item.createdAt).toLocaleString()}</time>
+          </li>)}
+        </ul>}
       </section>
       <section>
         <div className="aw-section-heading"><div><h2>Projects</h2><p className="aw-muted aw-small">Progress, ownership, and outstanding work at a glance.</p></div><span className="aw-pill">{projects.length} projects</span></div>
         {!projects.length ? <div className="aw-card aw-empty"><h3>{hasLoaded ? "No projects in your scope" : "Projects unavailable"}</h3><p className="aw-muted">{hasLoaded ? (isManager ? "Create a project, then add tasks and assign your team." : "Projects with tasks assigned within your team will appear here.") : "Retry loading your workspace above."}</p>{hasLoaded && isManager && <button className="aw-button" onClick={() => setShowProjectModal(true)}>+ New project</button>}</div> : <div className="aw-projects">{projects.map(project => {
-          const projectTasks = tasks.filter(task => belongsToProject(task, String(project.id)));
-          const completed = projectTasks.filter(task => task.status === "Completed").length;
-          const overdue = projectTasks.filter(isOverdue).length;
-          return <article className="aw-card aw-project" key={project.id}><div className="aw-project-top"><span className="aw-project-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z" /></svg></span><span className={`aw-pill ${overdue ? "aw-danger" : ""}`}>{overdue ? `${overdue} overdue` : projectTasks.length && completed === projectTasks.length ? "Completed" : projectTasks.length ? "Active" : "No tasks"}</span></div><h3>{project.title}</h3><p className="aw-project-description aw-muted">{project.description || "No description added."}</p><div className="aw-project-progress"><ProgressCircle completed={completed} total={projectTasks.length} label={`${project.title} completion`} size={80} /><div><strong>{completed} / {projectTasks.length} completed</strong><p className="aw-small aw-muted">{projectTasks.length - completed} tasks remaining</p></div></div><footer><span className="aw-small aw-muted">By {project.creator?.name || "System"}</span><button className="aw-link" onClick={() => showProjectTasks(project.id)}>View tasks →</button></footer></article>;
+          const stats = dashboardData?.projectStats.find(item => item.projectId === project.id) || { total: 0, completed: 0, overdue: 0 };
+          return <article className="aw-card aw-project" key={project.id}><div className="aw-project-top"><span className="aw-project-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10H3Z" /></svg></span><span className={`aw-pill ${stats.overdue ? "aw-danger" : ""}`}>{stats.overdue ? `${stats.overdue} overdue` : stats.total && stats.completed === stats.total ? "Completed" : stats.total ? "Active" : "No tasks"}</span></div><h3>{project.title}</h3><p className="aw-project-description aw-muted">{project.description || "No description added."}</p><div className="aw-project-progress"><ProgressCircle completed={stats.completed} total={stats.total} label={`${project.title} completion`} size={80} /><div><strong>{stats.completed} / {stats.total} completed</strong><p className="aw-small aw-muted">{stats.total - stats.completed} tasks remaining</p></div></div><footer><span className="aw-small aw-muted">By {project.creator?.name || "System"}</span><button className="aw-link" onClick={() => showProjectTasks(project.id)}>View tasks →</button></footer></article>;
         })}</div>}
       </section>
       <section ref={taskSection} className="aw-task-section">
-        <div className="aw-section-heading"><div><h2>Task management</h2><p className="aw-muted aw-small">Assign priorities, update status, and review task history.</p></div><div className="aw-actions"><button className="aw-button" disabled={loading || updatingIds.length > 0 || submitting || completingSubmitting} onClick={() => void fetchData()}>{loading ? "Refreshing…" : "Refresh"}</button><button className="aw-button" disabled={!filteredTasks.length} onClick={exportTasks}>Export CSV</button></div></div>
+        <div className="aw-section-heading"><div><h2>Task management</h2><p className="aw-muted aw-small">Assign priorities, update status, and review task history.</p></div><div className="aw-actions"><button className="aw-button" disabled={loading || taskLoading || updatingIds.length > 0 || submitting || completingSubmitting} onClick={() => fetchData()}>{loading || taskLoading ? "Refreshing…" : "Refresh"}</button><button className="aw-button" disabled={!tasks.length} onClick={exportTasks}>Export this page</button></div></div>
         <div className="aw-card aw-task-card">
           <div className="aw-filters">
-            <label className="aw-search">Search tasks<input type="search" placeholder="Title, ID, project, or member…" value={filters.search} onChange={e => setFilters(f => ({ ...f, search: e.target.value }))} /></label>
-            <label>Status<select value={filters.statuses[0] || ""} onChange={e => setFilters(f => ({ ...f, statuses: e.target.value ? [e.target.value] : [] }))}><option value="">All statuses</option>{["Pending", "In-Progress", "Completed"].map(value => <option key={value}>{value}</option>)}</select></label>
-            <label>Priority<select value={filters.priorities[0] || ""} onChange={e => setFilters(f => ({ ...f, priorities: e.target.value ? [e.target.value] : [] }))}><option value="">All priorities</option>{["Low", "Medium", "High", "Urgent"].map(value => <option key={value}>{value}</option>)}</select></label>
-            <label>Project<select value={selectedProject} onChange={e => setSelectedProject(e.target.value)}><option value="">All projects</option>{projects.map(project => <option key={project.id} value={project.id}>{project.title}</option>)}</select></label>
-            <label>Sort by<select value={filters.sortBy} onChange={e => setFilters(f => ({ ...f, sortBy: e.target.value as FilterState["sortBy"] }))}><option value="createdAt">Created date</option><option value="dueDate">Due date</option><option value="priority">Priority</option><option value="title">Title</option></select></label>
+            <label className="aw-search">Search tasks<input type="search" placeholder="Title, ID, project, or member…" value={filters.search} onChange={e => updateFilters(f => ({ ...f, search: e.target.value }))} /></label>
+            <label>Status<select value={filters.statuses[0] || ""} onChange={e => updateFilters(f => ({ ...f, statuses: e.target.value ? [e.target.value] : [] }))}><option value="">All statuses</option>{["Pending", "In-Progress", "Completed"].map(value => <option key={value}>{value}</option>)}</select></label>
+            <label>Priority<select value={filters.priorities[0] || ""} onChange={e => updateFilters(f => ({ ...f, priorities: e.target.value ? [e.target.value] : [] }))}><option value="">All priorities</option>{["Low", "Medium", "High", "Urgent"].map(value => <option key={value}>{value}</option>)}</select></label>
+            <label>Project<select value={selectedProject} onChange={e => changeProject(e.target.value)}><option value="">All projects</option>{projects.map(project => <option key={project.id} value={project.id}>{project.title}</option>)}</select></label>
+            <label>Sort by<select value={filters.sortBy} onChange={e => updateFilters(f => ({ ...f, sortBy: e.target.value as FilterState["sortBy"] }))}><option value="createdAt">Created date</option><option value="dueDate">Due date</option><option value="priority">Priority</option><option value="title">Title</option></select></label>
           </div>
-          <div className="aw-filter-bottom"><label className="aw-check"><input type="checkbox" checked={filters.overdue} onChange={e => setFilters(f => ({ ...f, overdue: e.target.checked }))} />Overdue only</label><button className="aw-link" onClick={() => setFilters(f => ({ ...f, sortOrder: f.sortOrder === "ASC" ? "DESC" : "ASC" }))}>{filters.sortOrder === "ASC" ? "↑ Ascending" : "↓ Descending"}</button><button className="aw-link" onClick={clearFilters}>Reset filters</button><span className="aw-muted aw-small" aria-live="polite">{filteredTasks.length} of {tasks.length} tasks</span></div>
-          {!visibleTasks.length ? <div className="aw-empty"><h3>{tasks.length ? "No matching tasks" : hasLoaded ? "No tasks yet" : "Tasks unavailable"}</h3><p className="aw-muted">{tasks.length ? "Try another search or reset your filters." : hasLoaded ? "Create a task to start tracking progress." : "Retry loading the dashboard."}</p>{tasks.length > 0 && <button className="aw-button" onClick={clearFilters}>Reset filters</button>}</div> : <div className="aw-table-scroll" tabIndex={0} role="region" aria-label="Tasks table, scroll horizontally on small screens"><table className="aw-table"><thead><tr>{["Task", "Assignee", "Project", "Priority", "Status", "Progress", "Due date", "History"].map(title => <th scope="col" key={title}>{title}</th>)}</tr></thead><tbody>{visibleTasks.map(task => <tr key={task.id}><td><span className="aw-small aw-muted">#{task.id}</span><button type="button" className="aw-task-title" onClick={() => setTimelineTaskId(task.id)}>{task.title}</button>{task.description && <p className="aw-task-description aw-muted" title={task.description}>{task.description}</p>}</td><td><div className="aw-assignee"><span className="aw-avatar">{task.assignee?.name?.charAt(0) || "?"}</span><span>{task.assignee?.name || "Unassigned"}</span></div></td><td>{task.project?.title || projects.find(project => belongsToProject(task, String(project.id)))?.title || "—"}</td><td><select className="aw-table-select" aria-label={`Priority for ${task.title}`} value={task.priority} disabled={updatingIds.includes(task.id) || loading} onChange={e => void handlePriorityUpdate(task.id, e.target.value)}>{["Low", "Medium", "High", "Urgent"].map(value => <option key={value}>{value}</option>)}</select></td><td><select className={`aw-table-select aw-status-${task.status.toLowerCase()}`} aria-label={`Status for ${task.title}`} value={task.status} disabled={updatingIds.includes(task.id) || loading} onChange={e => void handleStatusUpdate(task.id, e.target.value)}>{["Pending", "In-Progress", "Completed"].map(value => <option key={value}>{value}</option>)}</select></td><td><TaskProgressControl progress={task.status === "Completed" ? 100 : task.progress || 0} status={task.status} disabled={updatingIds.includes(task.id) || loading} onSave={(progress) => handleProgressUpdate(task.id, progress)} size={42} /></td><td><span>{formatDate(task.dueDate)}</span>{isOverdue(task) && <span className="aw-overdue aw-danger">Overdue</span>}</td><td><button className="aw-button aw-history" aria-label={`View history for ${task.title}`} onClick={() => setTimelineTaskId(task.id)}>View</button></td></tr>)}</tbody></table></div>}
-          <footer className="aw-pagination"><span className="aw-muted aw-small">{filteredTasks.length ? `${(currentPage - 1) * 10 + 1}–${Math.min(currentPage * 10, filteredTasks.length)} of ${filteredTasks.length}` : "0 tasks"}</span><div className="aw-actions"><button className="aw-button" disabled={currentPage === 1} onClick={() => setPage(currentPage - 1)}>Previous</button><span className="aw-small">{currentPage} / {pageCount}</span><button className="aw-button" disabled={currentPage === pageCount} onClick={() => setPage(currentPage + 1)}>Next</button></div></footer>
+          <div className="aw-filter-bottom"><label className="aw-check"><input type="checkbox" checked={filters.overdue} onChange={e => updateFilters(f => ({ ...f, overdue: e.target.checked }))} />Overdue only</label><button className="aw-link" onClick={() => updateFilters(f => ({ ...f, sortOrder: f.sortOrder === "ASC" ? "DESC" : "ASC" }))}>{filters.sortOrder === "ASC" ? "↑ Ascending" : "↓ Descending"}</button><button className="aw-link" onClick={clearFilters}>Reset filters</button><span className="aw-muted aw-small" aria-live="polite">{taskTotal ? `${Math.min((currentPage - 1) * 10 + 1, taskTotal)}–${Math.min(currentPage * 10, taskTotal)} of ${taskTotal} tasks` : "0 tasks"}</span></div>
+          {!visibleTasks.length ? <div className="aw-empty"><h3>{taskTotal ? "No matching tasks" : hasLoaded ? "No tasks yet" : "Tasks unavailable"}</h3><p className="aw-muted">{taskTotal ? "Try another search or reset your filters." : hasLoaded ? "Create a task to start tracking progress." : "Retry loading the dashboard."}</p>{taskTotal > 0 && <button className="aw-button" onClick={clearFilters}>Reset filters</button>}</div> : <div className="aw-table-scroll" tabIndex={0} role="region" aria-label="Tasks table, scroll horizontally on small screens"><table className="aw-table"><thead><tr>{["Task", "Assignee", "Project", "Priority", "Status", "Progress", "Due date", "History"].map(title => <th scope="col" key={title}>{title}</th>)}</tr></thead><tbody>{visibleTasks.map(task => <tr key={task.id}><td><span className="aw-small aw-muted">#{task.id}</span><button type="button" className="aw-task-title" onClick={() => setTimelineTaskId(task.id)}>{task.title}</button>{task.description && <p className="aw-task-description aw-muted" title={task.description}>{task.description}</p>}</td><td><div className="aw-assignee"><span className="aw-avatar">{task.assignee?.name?.charAt(0) || "?"}</span><span>{task.assignee?.name || "Unassigned"}</span></div></td><td>{task.project?.title || projects.find(project => belongsToProject(task, String(project.id)))?.title || "—"}</td><td><select className="aw-table-select" aria-label={`Priority for ${task.title}`} value={task.priority} disabled={updatingIds.includes(task.id) || loading || taskLoading} onChange={e => void handlePriorityUpdate(task.id, e.target.value)}>{["Low", "Medium", "High", "Urgent"].map(value => <option key={value}>{value}</option>)}</select></td><td><select className={`aw-table-select aw-status-${task.status.toLowerCase()}`} aria-label={`Status for ${task.title}`} value={task.status} disabled={updatingIds.includes(task.id) || loading || taskLoading} onChange={e => void handleStatusUpdate(task.id, e.target.value)}>{["Pending", "In-Progress", "Completed"].map(value => <option key={value}>{value}</option>)}</select></td><td><TaskProgressControl progress={task.status === "Completed" ? 100 : task.progress || 0} status={task.status} disabled={updatingIds.includes(task.id) || loading || taskLoading} onSave={(progress) => handleProgressUpdate(task.id, progress)} size={42} /></td><td><span>{formatDate(task.dueDate)}</span>{isOverdue(task) && <span className="aw-overdue aw-danger">Overdue</span>}</td><td><button className="aw-button aw-history" aria-label={`View history for ${task.title}`} onClick={() => setTimelineTaskId(task.id)}>View</button></td></tr>)}</tbody></table></div>}
+          <footer className="aw-pagination"><span className="aw-muted aw-small">{taskTotal ? `${(currentPage - 1) * 10 + 1}–${Math.min(currentPage * 10, taskTotal)} of ${taskTotal}` : "0 tasks"}</span><div className="aw-actions"><button className="aw-button" disabled={currentPage === 1 || taskLoading} onClick={() => setPage(currentPage - 1)}>Previous</button><span className="aw-small">{currentPage} / {pageCount}</span><button className="aw-button" disabled={currentPage === pageCount || taskLoading} onClick={() => setPage(currentPage + 1)}>Next</button></div></footer>
         </div>
       </section>
       {/* ── Modals ────────────────────────────────────────────────────────── */}
@@ -1325,7 +1481,7 @@ export default function AdminDashboard() {
               <div><label className="creation-label" htmlFor="task-description">Description <span>(optional)</span></label><textarea id="task-description" className="creation-input" value={taskForm.description} onChange={(e) => setTaskForm(p => ({ ...p, description: e.target.value }))} placeholder="Add context, requirements, or acceptance criteria…" /></div>
               <div className="creation-grid">
                 <div><label className="creation-label" htmlFor="task-project">Project</label><select id="task-project" required className="creation-input" value={taskForm.projectId} onChange={(e) => setTaskForm(p => ({ ...p, projectId: e.target.value }))}><option value="">Select a project</option>{projects.map(pr => <option key={pr.id} value={pr.id}>{pr.title}</option>)}</select>{projects.length === 0 && <p className="creation-note">Create a project before adding a task.</p>}</div>
-                <div><label className="creation-label" htmlFor="task-assignee">Assign member</label><select id="task-assignee" required className="creation-input" value={taskForm.assignedTo} onChange={(e) => setTaskForm(p => ({ ...p, assignedTo: e.target.value }))}><option value="">Select a member</option>{members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}{requestedMemberNames.filter(name => !members.some(member => member.name.trim().toLocaleLowerCase() === name.toLocaleLowerCase())).map(name => <option key={`unregistered-${name}`} value="" disabled>{name} — not registered</option>)}</select><p className="creation-note">{members.length ? "Only registered members can be assigned. Names marked “not registered” are display-only." : "No registered members are available to assign yet. The listed names are display-only until accounts are created."}</p></div>
+                <div><label className="creation-label" htmlFor="task-assignee">Assign member</label><select id="task-assignee" required className="creation-input" value={taskForm.assignedTo} onChange={(e) => setTaskForm(p => ({ ...p, assignedTo: e.target.value }))}><option value="">Select a member</option>{members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select><p className="creation-note">{members.length ? "Only active members you are allowed to assign are listed." : "No active members are available for assignment in your permitted scope."}</p></div>
               </div>
               <div><label className="creation-label" htmlFor="task-due-date">Due date</label><input id="task-due-date" required type="date" className="creation-input" value={taskForm.dueDate} onChange={(e) => setTaskForm(p => ({ ...p, dueDate: e.target.value }))} /></div>
               <div role="group" aria-labelledby="task-priority-label"><span className="creation-label" id="task-priority-label">Priority</span><div className="creation-priorities">{["Low", "Medium", "High", "Urgent"].map(p => <button key={p} type="button" aria-pressed={taskForm.priority === p} onClick={() => setTaskForm(prev => ({ ...prev, priority: p }))} className="creation-priority">{p}</button>)}</div></div>

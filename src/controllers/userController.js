@@ -309,6 +309,8 @@ const updateMember = async (req, res) => {
         : member.reportsToId;
       const structureChanged =
         department !== member.department || position !== member.position;
+      const reportingChanged =
+        structureChanged || Object.hasOwn(changes, "reportsToId");
       const leavingManager =
         member.position === "MANAGER" &&
         (position !== "MANAGER" || !isActive);
@@ -363,42 +365,44 @@ const updateMember = async (req, res) => {
         }
       }
 
-      if (position === "MANAGER") {
-        if (reportsToId !== null) return { error: "INVALID_REPORTING" };
-      } else {
-        if (reportsToId === null || reportsToId === undefined) {
-          return { error: "INVALID_REPORTING" };
-        }
-        const reportsTo = await User.findByPk(reportsToId, {
-          attributes: ["id", "department", "position", "isActive", "status", "reportsToId"],
-          transaction,
-        });
-        if (
-          !reportsTo ||
-          Number(reportsTo.id) === Number(member.id) ||
-          reportsTo.department !== department ||
-          !REPORTING_POSITIONS[position]?.includes(reportsTo.position) ||
-          !reportsTo.isActive ||
-          reportsTo.status !== "ACTIVE"
-        ) return { error: "INVALID_REPORTING" };
-        if (!isManager(req.user) && !canViewUser(req.user, reportsTo) && Number(reportsTo.id) !== Number(req.user.id)) {
-          return { error: "PARENT_FORBIDDEN" };
-        }
-
-        const visited = new Set();
-        let ancestor = reportsTo;
-        while (ancestor) {
-          const ancestorId = Number(ancestor.id);
-          if (ancestorId === Number(member.id) || visited.has(ancestorId)) {
-            return { error: "CIRCULAR_REPORTING" };
+      if (reportingChanged) {
+        if (position === "MANAGER") {
+          if (reportsToId !== null) return { error: "INVALID_REPORTING" };
+        } else {
+          if (reportsToId === null || reportsToId === undefined) {
+            return { error: "INVALID_REPORTING" };
           }
-          visited.add(ancestorId);
-          ancestor = ancestor.reportsToId
-            ? await User.findByPk(ancestor.reportsToId, {
-              attributes: ["id", "reportsToId"],
-              transaction,
-            })
-            : null;
+          const reportsTo = await User.findByPk(reportsToId, {
+            attributes: ["id", "department", "position", "isActive", "status", "reportsToId"],
+            transaction,
+          });
+          if (
+            !reportsTo ||
+            Number(reportsTo.id) === Number(member.id) ||
+            reportsTo.department !== department ||
+            !REPORTING_POSITIONS[position]?.includes(reportsTo.position) ||
+            !reportsTo.isActive ||
+            reportsTo.status !== "ACTIVE"
+          ) return { error: "INVALID_REPORTING" };
+          if (!isManager(req.user) && !canViewUser(req.user, reportsTo) && Number(reportsTo.id) !== Number(req.user.id)) {
+            return { error: "PARENT_FORBIDDEN" };
+          }
+
+          const visited = new Set();
+          let ancestor = reportsTo;
+          while (ancestor) {
+            const ancestorId = Number(ancestor.id);
+            if (ancestorId === Number(member.id) || visited.has(ancestorId)) {
+              return { error: "CIRCULAR_REPORTING" };
+            }
+            visited.add(ancestorId);
+            ancestor = ancestor.reportsToId
+              ? await User.findByPk(ancestor.reportsToId, {
+                attributes: ["id", "reportsToId"],
+                transaction,
+              })
+              : null;
+          }
         }
       }
 

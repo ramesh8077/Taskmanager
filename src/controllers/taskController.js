@@ -150,6 +150,13 @@ const createTask = async (req, res) => {
         },
         { transaction }
       );
+      await ActivityLog.create({
+        actorId: req.user.id,
+        action: "task.created",
+        entityType: "task",
+        entityId: String(newTask.id),
+        metadata: { assignedTo: assignee.id, projectId },
+      }, { transaction });
       return Task.findByPk(newTask.id, {
         transaction,
         include: [
@@ -254,6 +261,8 @@ const getTasks = async (req, res) => {
     };
     const order = query.sortBy === "name"
       ? [[{ model: User, as: "assignee" }, "name", direction]]
+      : query.sortBy === "title"
+        ? [["title", direction]]
       : query.sortBy === "progress"
         ? [["progress", direction]]
         : query.sortBy === "dueDate"
@@ -289,6 +298,166 @@ const getTasks = async (req, res) => {
     return res.status(500).json({
       success: false,
       message: "Internal server error while fetching tasks.",
+    });
+  }
+};
+
+const getTaskDashboardSummary = async (req, res) => {
+  try {
+    const { where } = await buildTaskQuery({
+      actor: req.user,
+      User,
+      DeadlineHistory,
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    const atRiskThrough = new Date();
+    atRiskThrough.setUTCDate(atRiskThrough.getUTCDate() + 2);
+    const atRiskDate = atRiskThrough.toISOString().slice(0, 10);
+    const scopedWhere = (...conditions) => ({ [Op.and]: [where, ...conditions] });
+
+    const [
+      total,
+      completed,
+      inProgress,
+      pending,
+      overdue,
+      groupedTasks,
+      groupedProjects,
+      overdueProjects,
+      atRiskTasks,
+      activity,
+    ] = await Promise.all([
+      Task.count({ where }),
+      Task.count({ where: scopedWhere({ status: { [Op.in]: ["Completed", "DONE"] } }) }),
+      Task.count({ where: scopedWhere({ status: "In-Progress" }) }),
+      Task.count({ where: scopedWhere({ status: "Pending" }) }),
+      Task.count({
+        where: scopedWhere(
+          { status: { [Op.notIn]: ["Completed", "DONE"] } },
+          { dueDate: { [Op.lt]: today } }
+        ),
+      }),
+      Task.findAll({
+        attributes: [
+          "department",
+          "status",
+          [db.sequelize.fn("COUNT", db.sequelize.col("id")), "count"],
+        ],
+        where,
+        group: ["department", "status"],
+        raw: true,
+      }),
+      Task.findAll({
+        attributes: [
+          "projectId",
+          "status",
+          [db.sequelize.fn("COUNT", db.sequelize.col("id")), "count"],
+        ],
+        where,
+        group: ["projectId", "status"],
+        raw: true,
+      }),
+      Task.findAll({
+        attributes: [
+          "projectId",
+          [db.sequelize.fn("COUNT", db.sequelize.col("id")), "count"],
+        ],
+        where: scopedWhere(
+          { status: { [Op.notIn]: ["Completed", "DONE"] } },
+          { dueDate: { [Op.lt]: today } }
+        ),
+        group: ["projectId"],
+        raw: true,
+      }),
+      Task.findAll({
+        where: scopedWhere(
+          { status: { [Op.notIn]: ["Completed", "DONE"] } },
+          { dueDate: { [Op.lte]: atRiskDate } }
+        ),
+        include: [
+          { model: Project, as: "project", attributes: ["id", "title"], required: false },
+          { model: User, as: "assignee", attributes: ["id", "name"], required: false },
+        ],
+        order: [["dueDate", "ASC"], ["id", "ASC"]],
+        limit: 5,
+      }),
+      TaskHistory.findAll({
+        attributes: ["id", "taskId", "field", "oldValue", "newValue", "action", "createdAt", "changedBy"],
+        include: [
+          {
+            model: Task,
+            as: "task",
+            attributes: ["id", "title"],
+            where,
+            required: true,
+          },
+          {
+            model: User,
+            as: "changedByUser",
+            attributes: ["id", "name"],
+            required: false,
+          },
+        ],
+        order: [["createdAt", "DESC"], ["id", "DESC"]],
+        limit: 10,
+      }),
+    ]);
+
+    const departments = new Map();
+    for (const row of groupedTasks) {
+      const name = row.department || "Unassigned";
+      const department = departments.get(name) || {
+        department: name,
+        total: 0,
+        completed: 0,
+        inProgress: 0,
+        pending: 0,
+      };
+      const count = Number(row.count);
+      department.total += count;
+      if (row.status === "Completed" || row.status === "DONE") department.completed += count;
+      else if (row.status === "In-Progress") department.inProgress += count;
+      else if (row.status === "Pending") department.pending += count;
+      departments.set(name, department);
+    }
+    const projectStats = new Map();
+    for (const row of groupedProjects) {
+      if (row.projectId === null) continue;
+      const projectId = Number(row.projectId);
+      const project = projectStats.get(projectId) || { projectId, total: 0, completed: 0, overdue: 0 };
+      const count = Number(row.count);
+      project.total += count;
+      if (row.status === "Completed" || row.status === "DONE") project.completed += count;
+      projectStats.set(projectId, project);
+    }
+    for (const row of overdueProjects) {
+      const project = projectStats.get(Number(row.projectId));
+      if (project) project.overdue = Number(row.count);
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Task dashboard summary fetched successfully.",
+      data: {
+        summary: {
+          total,
+          completed,
+          inProgress,
+          pending,
+          overdue,
+          completionRate: total ? Math.round((completed / total) * 100) : 0,
+        },
+        departments: [...departments.values()].sort((a, b) => a.department.localeCompare(b.department)),
+        projectStats: [...projectStats.values()],
+        atRiskTasks,
+        activity,
+      },
+    });
+  } catch (error) {
+    console.error("Get Task Dashboard Summary Error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Unable to load the task dashboard summary.",
     });
   }
 };
@@ -510,6 +679,15 @@ const updateStatus = async (req, res) => {
         );
       }
       await task.save({ transaction });
+      if (oldStatus !== status || oldProgress !== task.progress) {
+        await ActivityLog.create({
+          actorId: req.user.id,
+          action: "task.status_updated",
+          entityType: "task",
+          entityId: String(task.id),
+          metadata: { oldStatus, status, progress: task.progress },
+        }, { transaction });
+      }
     });
 
     // ── Re-fetch with associations for the response ───────────────────────
@@ -585,6 +763,13 @@ const updateProgress = async (req, res) => {
         );
         task.progress = progress;
         await task.save({ transaction });
+        await ActivityLog.create({
+          actorId: req.user.id,
+          action: "task.progress_updated",
+          entityType: "task",
+          entityId: String(task.id),
+          metadata: { progress },
+        }, { transaction });
       });
     }
     return res.status(200).json({
@@ -665,6 +850,13 @@ const updatePriority = async (req, res) => {
       }
       task.priority = priority;
       await task.save({ transaction });
+      await ActivityLog.create({
+        actorId: req.user.id,
+        action: "task.priority_updated",
+        entityType: "task",
+        entityId: String(task.id),
+        metadata: { oldPriority, priority },
+      }, { transaction });
     });
 
     // ── Re-fetch with associations ────────────────────────────────────────
@@ -745,6 +937,7 @@ const getTaskHistory = async (req, res) => {
 module.exports = {
   createTask,
   getTasks,
+  getTaskDashboardSummary,
   updateTask,
   deleteTask,
   updateStatus,

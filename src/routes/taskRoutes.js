@@ -74,6 +74,11 @@ router.delete(
 // ─── Scoped, permission-guarded routes ─────────────────────────────────────
 
 router.get(
+  "/dashboard-summary",
+  verifyToken,
+  taskController.getTaskDashboardSummary
+);
+router.get(
   "/",
   verifyToken,
   validateRequest(taskQuery, "query"),

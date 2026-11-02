@@ -2,7 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { Op } = require("sequelize");
 const db = require("../models");
-const { isManager, canAssignTask } = require("../lib/permissions");
+const { isManager, canAssignTask, canEditDeadline } = require("../lib/permissions");
 const {
   assignableUserIds,
   buildTicketScope,
@@ -15,6 +15,7 @@ const User = db.User;
 const TicketHistory = db.TicketHistory;
 const TicketComment = db.TicketComment;
 const TicketAttachment = db.TicketAttachment;
+const DeadlineHistory = db.DeadlineHistory;
 const Notification = db.Notification;
 const Project = db.Project;
 const Task = db.Task;
@@ -453,15 +454,26 @@ async function reopenTicket(req, res) {
 async function updateDeadline(req, res) {
   try {
     const { id } = req.validatedParams || req.params;
-    const { deadline } = req.body;
+    const { deadline, reason } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
-    if (!adminCanManage(req.user)) return res.status(403).json({ success: false, message: "Administrator access is required to change ticket deadlines." });
+    if (!canEditDeadline(req.user, ticket)) {
+      return res.status(403).json({ success: false, message: "You cannot change this ticket's deadline." });
+    }
     const oldValue = ticket.deadline;
     if (oldValue !== deadline) {
-      ticket.deadline = deadline;
-      await ticket.save();
-      await recordHistory(ticket, req.user.id, "deadline", oldValue, deadline, "updated");
+      await db.sequelize.transaction(async (transaction) => {
+        ticket.deadline = deadline;
+        await ticket.save({ transaction });
+        await recordHistory(ticket, req.user.id, "deadline", oldValue, deadline, "updated", transaction);
+        await DeadlineHistory.create({
+          ticketId: ticket.id,
+          oldDeadline: oldValue,
+          newDeadline: deadline,
+          changedById: req.user.id,
+          reason,
+        }, { transaction });
+      });
     }
     return res.status(200).json({ success: true, data: { ticket } });
   } catch (error) {

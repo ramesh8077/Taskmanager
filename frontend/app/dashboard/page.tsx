@@ -139,7 +139,9 @@ export default function DashboardPage() {
                   </span>
                 </p>
               </div>
-              {user?.position === "INTERN" ? <MemberDashboard /> : <AdminDashboard />}
+              {user?.position === "INTERN" || user?.position === "EMPLOYEE"
+                ? <MemberDashboard />
+                : <AdminDashboard />}
             </>
           ) : (
             <TicketDashboard />

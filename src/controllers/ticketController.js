@@ -5,9 +5,8 @@ const TicketHistory = db.TicketHistory;
 const User = db.User;
 const { Op } = require("sequelize");
 const { canAssignTask, isManager } = require("../lib/permissions");
-const { visibleUserIds } = require("../lib/queryFilters");
+const { visibleUserIds, buildTicketQuery } = require("../lib/queryFilters");
 const {
-  scopedTicketQuery,
   scopedTicketByIdQuery,
   scopedUserQuery,
 } = require("../lib/scope");
@@ -137,33 +136,21 @@ const createTicket = async (req, res) => {
  */
 const getTickets = async (req, res) => {
   try {
-    const { search, status, priority, department } =
-      req.validatedQuery || req.query;
-    const whereClause = { [Op.and]: [scopedTicketQuery(req.user)] };
-
-    if (status) {
-      const statuses = status.split(",").map((value) => value.trim());
-      whereClause.status = statuses.length === 1 ? statuses[0] : { [Op.in]: statuses };
-    }
-    if (priority) {
-      const priorities = priority.split(",").map((value) => value.trim());
-      whereClause.priority = priorities.length === 1 ? priorities[0] : { [Op.in]: priorities };
-    }
-    if (department) whereClause.department = department;
-
-    // Search by ID or Title
-    if (search) {
-      const searchTerm = search.trim();
-      const isNumeric = /^\d+$/.test(searchTerm);
-      if (isNumeric) {
-        whereClause.id = Number(searchTerm);
-      } else {
-        whereClause.title = { [Op.like]: `%${searchTerm}%` };
-      }
-    }
-
-    const tickets = await Ticket.findAll({
-      where: whereClause,
+    const query = req.validatedQuery || req.query;
+    const { where, page, pageSize } = await buildTicketQuery({
+      actor: req.user,
+      User,
+      filters: query,
+    });
+    const order = query.sort === "oldest"
+      ? [["createdAt", "ASC"]]
+      : query.sort === "priority"
+        ? [[db.sequelize.literal(`FIELD(Ticket.priority, 'P0', 'P1', 'P2') ASC`)], ["createdAt", "DESC"]]
+        : query.sort === "deadline"
+          ? [["deadline", "ASC"], ["createdAt", "DESC"]]
+          : [["createdAt", "DESC"]];
+    const { rows: tickets, count } = await Ticket.findAndCountAll({
+      where,
       include: [
         { model: User, as: "creator", attributes: ["id", "name", "email"] },
         { model: User, as: "assignee", attributes: ["id", "name", "email"] },
@@ -178,14 +165,19 @@ const getTickets = async (req, res) => {
           include: [{ model: User, as: "changedByUser", attributes: ["id", "name"] }]
         }
       ],
-      order: [
-        ["createdAt", "DESC"],
-        [{ model: TicketHistory, as: "history" }, "createdAt", "DESC"]
-      ],
+      order: [...order, ["id", "DESC"]],
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
+      distinct: true,
     });
 
+    const { where: scopeWhere } = await buildTicketQuery({
+      actor: req.user,
+      User,
+      filters: { view: "all" },
+    });
     const absoluteTotal = await Ticket.count({
-      where: scopedTicketQuery(req.user),
+      where: scopeWhere,
       include: [{ model: User, as: "assignee", attributes: [], required: false }],
       distinct: true,
     });
@@ -194,8 +186,13 @@ const getTickets = async (req, res) => {
       success: true,
       data: { 
         tickets,
-        totalFiltered: tickets.length,
-        totalAbsolute: absoluteTotal
+        count: tickets.length,
+        total: count,
+        totalFiltered: count,
+        totalAbsolute: absoluteTotal,
+        page,
+        pageSize,
+        pageCount: Math.max(1, Math.ceil(count / pageSize)),
       },
     });
   } catch (error) {

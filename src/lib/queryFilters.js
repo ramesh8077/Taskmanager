@@ -63,7 +63,10 @@ async function buildTaskQuery({ actor, User, DeadlineHistory, filters = {} }) {
   const allowedIds = await visibleUserIds(User, actor);
   const conditions = isManager(actor)
     ? []
-    : [{ assignedTo: { [Op.in]: allowedIds } }];
+    : [
+      { assignedTo: { [Op.in]: allowedIds } },
+      { department: actor.department },
+    ];
   if (filters.status) {
     conditions.push({ status: {
       [Op.in]: filters.status.split(",").map((value) => value.trim()),
@@ -207,7 +210,9 @@ async function buildTicketQuery({ actor, User, filters = {} }) {
   if (filters.priority) {
     conditions.push({ priority: { [Op.in]: filters.priority.split(",").map((value) => value.trim()) } });
   }
-  if (filters.department) conditions.push({ department: filters.department });
+  if (filters.department && (isManager(actor) || filters.department === actor.department)) {
+    conditions.push({ department: filters.department });
+  }
   if (filters.assignee === "unassigned") conditions.push({ assignedTo: null });
   else if (filters.assignee) {
     conditions.push({ assignedTo: visibleIds.includes(Number(filters.assignee))

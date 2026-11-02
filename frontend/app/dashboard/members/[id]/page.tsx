@@ -151,7 +151,10 @@ function MemberDetails({ id }: { id: number }) {
         API.get(`/users/members/${id}`),
         API.get(`/users/${id}/overview`, {
           params: {
-            ...taskFilters,
+            search: taskFilters.search || undefined,
+            startDate: taskFilters.startDate || undefined,
+            endDate: taskFilters.endDate || undefined,
+            page: taskFilters.page,
             pageSize: 10,
             ...(taskFilters.status ? { status: taskFilters.status } : {}),
             ...(taskFilters.priority ? { priority: taskFilters.priority } : {}),
@@ -217,14 +220,13 @@ function MemberDetails({ id }: { id: number }) {
   }, [user]);
 
   useEffect(() => {
-    if (!user || user.position !== "MANAGER" || !department || !position) {
-      setReportingOptions([]);
-      return;
-    }
+    if (!user || user.position !== "MANAGER" || !department || !position) return;
     if (position === "MANAGER") {
-      setReportingOptions([]);
-      setReportsToId("");
-      return;
+      const timer = window.setTimeout(() => {
+        setReportingOptions([]);
+        setReportsToId("");
+      }, 0);
+      return () => window.clearTimeout(timer);
     }
     let active = true;
     API.get("/auth/reporting-options", { params: { department, position } })

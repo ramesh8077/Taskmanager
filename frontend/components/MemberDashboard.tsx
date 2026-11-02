@@ -8,7 +8,6 @@ import TaskFilters, { type FilterState } from "@/components/TaskFilters";
 import TaskTimeline from "@/components/TaskTimeline";
 import CompleteTaskModal from "@/components/CompleteTaskModal";
 import { TaskProgressControl } from "@/components/TaskProgress";
-import { useTheme } from "@/context/ThemeContext";
 import { useAuth } from "@/context/AuthContext";
 
 interface Task {
@@ -51,7 +50,6 @@ const DEFAULT_FILTERS: FilterState = {
 };
 
 export default function MemberDashboard() {
-  const { isDark } = useTheme();
   const { user } = useAuth();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,6 +65,8 @@ export default function MemberDashboard() {
     try {
       setLoading(true);
       const params = new URLSearchParams();
+      params.set("assignedToMe", "true");
+      params.set("pageSize", "100");
       if (filters.search) params.set("search", filters.search);
       if (filters.statuses.length > 0) params.set("status", filters.statuses.join(","));
       if (filters.priorities.length > 0) params.set("priority", filters.priorities.join(","));
@@ -83,7 +83,10 @@ export default function MemberDashboard() {
     }
   }, [filters]);
 
-  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+  useEffect(() => {
+    const timer = window.setTimeout(() => void fetchTasks(), 0);
+    return () => window.clearTimeout(timer);
+  }, [fetchTasks]);
 
   const handleStatusUpdate = async (taskId: number, newStatus: string) => {
     if (newStatus === "Completed") {
@@ -98,8 +101,8 @@ export default function MemberDashboard() {
         toast.success(`Status updated to "${newStatus}"`);
         setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status: newStatus, progress: newStatus === "Pending" || t.status === "Completed" ? 0 : t.progress } : t)));
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to update status.");
+    } catch (err: unknown) {
+      toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message || "Failed to update status.");
     } finally {
       setUpdatingId(null);
     }
@@ -119,8 +122,8 @@ export default function MemberDashboard() {
         setTasks((prev) => prev.map((t) => t.id === completingTask.id ? { ...t, status: "Completed", progress: 100, completedBy, completedAt } : t));
         setCompletingTask(null);
       }
-    } catch (err: any) {
-      toast.error(err.response?.data?.message || "Failed to complete task.");
+    } catch (err: unknown) {
+      toast.error((err as { response?: { data?: { message?: string } } }).response?.data?.message || "Failed to complete task.");
     } finally {
       setCompletingSubmitting(false);
     }
@@ -255,6 +258,7 @@ export default function MemberDashboard() {
                               <select 
                                 value={t.status} 
                                 onChange={(e) => handleStatusUpdate(t.id, e.target.value)} 
+                                disabled={updatingId === t.id}
                                 className={`text-[10px] px-2 py-1 rounded-md border font-bold bg-transparent outline-none cursor-pointer ${statusStyle[t.status]}`}
                               >
                                 {["Pending", "In-Progress", "Completed"].map(s => <option key={s} value={s} className="bg-white dark:bg-zinc-900 text-black dark:text-white">{s}</option>)}

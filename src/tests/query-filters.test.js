@@ -95,7 +95,8 @@ test("department filters cannot widen a Sub Manager's assigned-user scope", asyn
     filters: { department: "Legal" },
   });
   const conditions = where[Op.and];
-  assert.equal(conditions.some((condition) => condition.department === "Legal"), true);
+  assert.equal(conditions.some((condition) => condition.department === "Development"), true);
+  assert.equal(conditions.some((condition) => condition.department === "Legal"), false);
   assert.deepEqual(
     conditions.find((condition) => condition.assignedTo)?.assignedTo[Op.in],
     [1, 2],
