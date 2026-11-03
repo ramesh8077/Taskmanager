@@ -150,3 +150,15 @@ test("registration schema requires department, position, and valid reporting sel
   );
   assert.equal(registerBody.safeParse({ ...base, department: "Unknown" }).success, false);
 });
+
+test("cross-department Manager reporting is accepted without changing the new user's department", () => {
+  const developmentEmployee = {
+    name: "Development Employee",
+    email: "developer@example.com",
+    password: "long-password",
+    department: "Development",
+    position: "EMPLOYEE",
+    reportsToId: 99,
+  };
+  assert.equal(registerBody.safeParse(developmentEmployee).success, true);
+});

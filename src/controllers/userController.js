@@ -21,6 +21,7 @@ const {
   POSITION_RANK,
 } = require("../lib/permissions");
 const { assignableUserIds, visibleUserIds } = require("../lib/queryFilters");
+const { reportingManagerScope } = require("../lib/reportingScope");
 const { REPORTING_POSITIONS } = require("../../shared/organization");
 
 function taskScope(memberId, query) {
@@ -339,20 +340,17 @@ const updateMember = async (req, res) => {
         });
         for (const report of directReports) {
           const allowedParents = REPORTING_POSITIONS[report.position] || [];
-          const memberCanRemainParent =
-            isActive &&
-            report.department === department &&
-            allowedParents.includes(position);
+          const memberCanRemainParent = isActive &&
+            allowedParents.includes(position) &&
+            (position === "MANAGER" || report.department === department);
           if (memberCanRemainParent) continue;
 
           const candidates = await User.findAll({
-            where: {
-              id: { [Op.notIn]: [member.id, report.id] },
+            where: reportingManagerScope({
               department: report.department,
-              position: { [Op.in]: allowedParents },
-              status: "ACTIVE",
-              isActive: true,
-            },
+              position: report.position,
+              excludeIds: [member.id, report.id],
+            }),
             attributes: ["id", "position"],
             transaction,
           });
@@ -380,7 +378,7 @@ const updateMember = async (req, res) => {
           if (
             !reportsTo ||
             Number(reportsTo.id) === Number(member.id) ||
-            reportsTo.department !== department ||
+            (reportsTo.position !== "MANAGER" && reportsTo.department !== department) ||
             !REPORTING_POSITIONS[position]?.includes(reportsTo.position) ||
             !reportsTo.isActive ||
             reportsTo.status !== "ACTIVE"

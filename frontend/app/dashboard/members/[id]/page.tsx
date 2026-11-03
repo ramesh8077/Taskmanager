@@ -25,6 +25,7 @@ interface ReportingOption {
   id: number;
   name: string;
   position: string;
+  department: string;
 }
 
 interface Task {
@@ -393,7 +394,7 @@ function MemberDetails({ id }: { id: number }) {
                     className="mt-1 w-full rounded-lg border t-border-subtle bg-transparent px-3 py-2 t-text-primary">
                     <option value="">Select a manager</option>
                     {reportingOptions.map((option) => (
-                      <option key={option.id} value={option.id}>{option.name} · {option.position.replaceAll("_", " ")}</option>
+                      <option key={option.id} value={option.id}>{option.name} · {option.position.replaceAll("_", " ")} · {option.department}</option>
                     ))}
                   </select>
                 </label>

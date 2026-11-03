@@ -19,6 +19,7 @@ const { Op } = require("sequelize");
 const db = require("../models");
 const appConfig = require("../config/app.config");
 const { permissionsForPosition } = require("../lib/permissions");
+const { reportingManagerScope } = require("../lib/reportingScope");
 const {
   DEPARTMENTS,
   POSITIONS,
@@ -44,13 +45,8 @@ const getReportingOptions = async (req, res) => {
   const allowedPositions = REPORTING_POSITIONS[position];
   const users = allowedPositions.length
     ? await User.findAll({
-        where: {
-          department,
-          position: { [Op.in]: allowedPositions },
-          status: "ACTIVE",
-          isActive: true,
-        },
-        attributes: ["id", "name", "position"],
+        where: reportingManagerScope({ department, position }),
+        attributes: ["id", "name", "position", "department"],
         order: [["name", "ASC"]],
       })
     : [];
@@ -106,18 +102,17 @@ const register = async (req, res) => {
       const allowedPositions = REPORTING_POSITIONS[position];
       reportingManager = await User.findOne({
         where: {
-          id: reportsToId,
-          department,
-          position: { [Op.in]: allowedPositions },
-          status: "ACTIVE",
-          isActive: true,
+          [Op.and]: [
+            { id: reportsToId },
+            reportingManagerScope({ department, position }),
+          ],
         },
         attributes: ["id", "reportsToId"],
       });
       if (!reportingManager) {
         return res.status(400).json({
           success: false,
-          message: "Choose an active reporting manager in the same department with a higher position.",
+          message: "Choose an active Manager or a higher-position reporting manager in your department.",
         });
       }
 

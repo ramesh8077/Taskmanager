@@ -19,7 +19,7 @@ type RegistrationForm = {
   position: Position | "";
   reportsToId: string;
 };
-type ReportingOption = { id: number; name: string; position: Position };
+type ReportingOption = { id: number; name: string; position: Position; department: string };
 
 const positionLabels: Record<Position, string> = {
   MANAGER: "Manager",
@@ -248,13 +248,13 @@ export default function RegisterPage() {
                   <option value="">{reportingLoading ? "Loading managers…" : "Select reporting manager"}</option>
                   {reportingOptions.map((person) => (
                     <option key={person.id} value={person.id}>
-                      {person.name} — {positionLabels[person.position]}
+                      {person.name} — {positionLabels[person.position]} · {person.department}
                     </option>
                   ))}
                 </select>
                 {errors.reportsToId && <p className="mt-1.5 text-xs text-red-600">{errors.reportsToId}</p>}
                 {!reportingLoading && form.department && form.position && reportingOptions.length === 0 && (
-                  <p className="mt-1.5 text-xs text-slate-500">No eligible reporting manager exists in this department yet.</p>
+                  <p className="mt-1.5 text-xs text-slate-500">No eligible Manager or same-department reporting manager exists yet.</p>
                 )}
               </div>
             )}
