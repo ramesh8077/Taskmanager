@@ -7,6 +7,7 @@ const {
   canEditDeadline,
   canUpdateProgress,
   canDeleteTask,
+  permissionsForPosition,
 } = require("../lib/permissions");
 const { registerBody } = require("../validators/schemas");
 
@@ -64,6 +65,28 @@ test("task deletion requires Manager or creator authority over the assignee", ()
   assert.equal(canDeleteTask(developmentLead, task), true);
   assert.equal(canDeleteTask(developmentEmployee, task), false);
   assert.equal(canDeleteTask(manager, { ...task, assignee: legalEmployee }), true);
+});
+
+test("position capabilities expose only hierarchy dashboard actions", () => {
+  const teamLeadPermissions = permissionsForPosition(
+    { position: "TEAM_LEAD" },
+    ["task:view:own"],
+  );
+  assert.ok(teamLeadPermissions.includes("task:create"));
+  assert.ok(teamLeadPermissions.includes("user:view:team"));
+  assert.ok(!teamLeadPermissions.includes("user:view:any"));
+
+  const employeePermissions = permissionsForPosition(
+    { position: "EMPLOYEE" },
+    ["task:view:own"],
+  );
+  assert.ok(!employeePermissions.includes("task:create"));
+  assert.ok(!employeePermissions.includes("user:view:team"));
+
+  const managerPermissions = permissionsForPosition({ position: "MANAGER" }, []);
+  assert.ok(managerPermissions.includes("task:view:any"));
+  assert.ok(managerPermissions.includes("ticket:view:any"));
+  assert.ok(managerPermissions.includes("settings:manage"));
 });
 
 test("registration schema requires department, position, and valid reporting selection", () => {

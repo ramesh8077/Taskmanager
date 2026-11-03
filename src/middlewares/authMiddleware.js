@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const appConfig = require("../config/app.config");
 const db = require("../models");
 const { can, normalizedRole } = require("../lib/rbac");
+const { permissionsForPosition } = require("../lib/permissions");
 
 const verifyToken = async (req, res, next) => {
   const token =
@@ -96,7 +97,10 @@ const verifyToken = async (req, res, next) => {
     req.user = {
       ...user.get({ plain: true }),
       role: normalizedRole(user.role),
-      permissions: role.permissions.map((permission) => permission.name),
+      permissions: permissionsForPosition(
+        user,
+        role.permissions.map((permission) => permission.name),
+      ),
     };
     return next();
   } catch (error) {

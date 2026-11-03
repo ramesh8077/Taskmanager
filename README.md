@@ -56,6 +56,28 @@ review them at `GET /api/tasks/deadline-requests` and
 `PUT /api/tasks/deadline-requests/:requestId`. Approval updates the task
 deadline and records deadline history in the same transaction.
 
+### Shared Tasks/Tickets list
+
+The authenticated `GET /api/work-items` endpoint serves both separate Sequelize
+models through one paginated response. `view=tasks|tickets` selects the source;
+`status=PENDING|IN_PROGRESS|IN_REVIEW|DONE|BLOCKED|ALL` selects the status
+group. The default is Tasks/PENDING, mapped to the existing `Pending` task
+status and `Open` ticket status (and their legacy aliases). Optional filters
+include `assignedTo`, comma-separated `assigneePosition`, `createdBy`,
+comma-separated `department` and `priority`, `deadlineFrom`, `deadlineTo`,
+`createdFrom`, `createdTo`, `overdue`, and `search`. Sorting and page
+parameters are `sortBy`, `sortOrder`, `page`, and `pageSize`.
+
+The response includes the paginated normalized `data`, `total`, grouped status
+`counts`, cross-view `viewCounts`, and permission-scoped `filterOptions`.
+Counts and result queries use database scopes and never load the full item sets
+into application memory. The active Next.js dashboard renders the shared
+`WorkItemsTable` for every hierarchy position; employee and intern views omit
+team-management filters while the API continues enforcing the caller's scope.
+The index migration
+`202611030001-work-items-dashboard-indexes.js` adds the missing composite
+indexes; apply it with `npm run db:migrate` before deploying this query.
+
 Public registration requires a department, position, and eligible same-
 department reporting manager (except Managers). A Manager signup is accepted
 only when its email exactly matches `SUPER_ADMIN_EMAIL`; configure that value
@@ -124,6 +146,12 @@ lower-ranked reports see the scoped team workspace and search; Interns see
 their personal task dashboard. Project creation is available to Managers,
 while task assignment options are limited to users below the signed-in
 position in the same department.
+
+Dashboard capabilities that depend on hierarchy position are added to the
+authenticated permission list after role grants are loaded: Managers receive
+the Manager dashboard capabilities, while Sub Managers and Team Leads receive
+team-view and task-creation capabilities. The task creation route enforces
+`task:create`; Employees and Interns do not receive that capability.
 
 ### Adding a permission
 

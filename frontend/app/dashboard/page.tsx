@@ -1,172 +1,34 @@
 "use client";
 
-/**
- * Dashboard Page
- *
- * Protected route that renders:
- *   - Team workspace for positions that can manage lower-ranked users
- *   - Personal task dashboard for Interns
- *
- * Includes theme toggle (dark/light mode) in the navbar.
- */
-
+import WorkItemsTable from "@/components/WorkItemsTable";
 import ProtectedRoute from "@/components/ProtectedRoute";
-import Link from "next/link";
-import AdminDashboard from "@/components/AdminDashboard";
-import MemberDashboard from "@/components/MemberDashboard";
-import TicketDashboard from "@/components/TicketDashboard";
 import { useAuth } from "@/context/AuthContext";
-import { useTheme } from "@/context/ThemeContext";
-import { useEffect, useState } from "react";
 
 export default function DashboardPage() {
-  const { user, logout } = useAuth();
-  const { isDark } = useTheme();
-  const [activeTab, setActiveTab] = useState<"tasks" | "tickets">("tasks");
-  const [tabReady, setTabReady] = useState(false);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      const tab = new URLSearchParams(window.location.search).get("dashboardTab");
-      if (tab === "tickets") setActiveTab("tickets");
-      setTabReady(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!tabReady) return;
-    const params = new URLSearchParams(window.location.search);
-    if (activeTab === "tickets") params.set("dashboardTab", "tickets");
-    else params.delete("dashboardTab");
-    const query = params.toString();
-    window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-  }, [activeTab, tabReady]);
+  const { user } = useAuth();
+  const isIndividual = user?.position === "EMPLOYEE" || user?.position === "INTERN";
+  const isManager = user?.position === "MANAGER";
+  const positionLabel = user?.position.toLowerCase().replaceAll("_", " ") || "";
 
   return (
     <ProtectedRoute>
-      <main className="min-h-screen pb-20 bg-surface-primary"   style={{
-    color: "#0f172a",
-  }}>
-        {/* ── Navbar ──────────────────────────────────────────────────────── */}
-        <nav
-          className="border-b backdrop-blur-md sticky top-0 z-50 transition-colors"
-          style={{
-            background: "var(--nav-bg)",
-            borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)",
-          }}
-        >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
-            <div className="flex items-center gap-6">
-              <div className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-xl bg-linear-to-br from-brand-500 to-brand-700 flex items-center justify-center shadow-md shadow-brand-500/15">
-                  <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-                  </svg>
-                </div>
-                <span className="font-semibold text-lg tracking-tight hidden md:block text-black">Task Manager</span>
-              </div>
-
-              {/* Tab Switcher */}
-              <div className="flex items-center bg-black/5 dark:bg-white/5 p-1 rounded-xl border border-black/10 dark:border-white/10">
-                <button
-                  onClick={() => setActiveTab("tasks")}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === "tasks" ? "bg-brand-500 text-white shadow-md shadow-brand-500/25" : "t-text-muted hover:t-text-primary"
-                  }`}
-                >
-                  Tasks
-                </button>
-                <button
-                  onClick={() => setActiveTab("tickets")}
-                  className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                    activeTab === "tickets" ? "bg-brand-500 text-white shadow-md shadow-brand-500/25" : "t-text-muted hover:t-text-primary"
-                  }`}
-                >
-                  Tickets
-                </button>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-3">
-
-              {/* Theme Toggle currently disabled */}
-              {/* <button
-                onClick={toggleTheme}
-                className="w-9 h-9 rounded-xl flex items-center justify-center transition-all cursor-pointer group"
-                style={{
-                  background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
-                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-                }}
-                title={isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
-                id="theme-toggle-btn"
-              >
-                <span className="text-lg transition-transform group-hover:scale-110">
-                  {isDark ? "☀️" : "🌙"}
-                </span>
-              </button> */}
-
-              {/* User Info */}
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-linear-to-br from-brand-400 to-brand-600 flex items-center justify-center text-white text-xs font-bold uppercase">
-                  {user?.name?.charAt(0) || "?"}
-                </div>
-                <div className="hidden sm:block">
-                  <p className="text-sm font-medium leading-none text-black">{user?.name}</p>
-                  <p className="text-xs t-text-muted mt-0.5">{user?.position}</p>
-                </div>
-              </div>
-
-              {user && (
-                <Link
-                  href={`/dashboard/members/${user.id}`}
-                  className="rounded-lg border border-indigo-500/30 px-3 py-1.5 text-xs font-semibold text-indigo-600 hover:bg-indigo-500/5"
-                >
-                  My details
-                </Link>
-              )}
-
-              {/* Logout */}
-              <button
-                onClick={logout}
-                className="px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all cursor-pointer text-red-600 hover:text-red-700 hover:bg-red-50 focus:bg-red-50 active:bg-red-100"
-                style={{
-                  // color: isDark ? "#d1d5db" : "#475569",
-                  background: isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.06)",
-                  border: `1px solid ${isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)"}`,
-                }}
-                id="logout-btn"
-              >
-                Logout
-              </button>
-            </div>
+      <section className="dashboard-page">
+        <div className="dashboard-page-header">
+          <div>
+            <h1 className="dashboard-page-title">
+              {isIndividual
+                ? "My Tasks & Tickets"
+                : isManager
+                  ? "All Tasks & Tickets"
+                  : "Team Tasks & Tickets"}
+            </h1>
+            <p className="dashboard-page-subtitle">
+              {user?.name} · {user?.department} · {positionLabel}
+            </p>
           </div>
-        </nav>
-
-        {/* ── Content ─────────────────────────────────────────────────────── */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {activeTab === "tasks" ? (
-            <>
-              <div className="mb-8">
-                <h1 className="text-2xl sm:text-3xl font-bold text-slate-900">
-                  Welcome, {user?.name} 👋
-                </h1>
-                <p className="text-slate-800 mt-1 text-sm">
-                  {user?.department} ·{" "}
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-800 border border-indigo-300">
-                  {user?.position}
-                  </span>
-                </p>
-              </div>
-              {user?.position === "INTERN" || user?.position === "EMPLOYEE"
-                ? <MemberDashboard />
-                : <AdminDashboard />}
-            </>
-          ) : (
-            <TicketDashboard />
-          )}
         </div>
-      </main>
+        <WorkItemsTable />
+      </section>
     </ProtectedRoute>
   );
 }

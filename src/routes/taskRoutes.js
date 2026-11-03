@@ -13,7 +13,7 @@ const express = require("express");
 const router = express.Router();
 const taskController = require("../controllers/taskController");
 const deadlineExtensionController = require("../controllers/deadlineExtensionController");
-const { verifyToken } = require("../middlewares/authMiddleware");
+const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
 const { validateRequest } = require("../middlewares/validate");
 const {
   createTaskBody,
@@ -47,6 +47,7 @@ router.put(
 router.post(
   "/",
   verifyToken,
+  requirePermission("task:create"),
   validateRequest(createTaskBody),
   taskController.createTask
 );

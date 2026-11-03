@@ -4,6 +4,27 @@ const positionOf = (user) => user?.position;
 const rankOf = (user) => POSITION_RANK[positionOf(user)] || 0;
 const idOf = (user) => Number(user?.id);
 
+const POSITION_PERMISSIONS = Object.freeze({
+  MANAGER: [
+    "task:create",
+    "task:view:any",
+    "task:update:any",
+    "ticket:view:any",
+    "user:view:any",
+    "report:view:any",
+    "settings:manage",
+  ],
+  SUB_MANAGER: ["task:create", "user:view:team"],
+  TEAM_LEAD: ["task:create", "user:view:team"],
+});
+
+function permissionsForPosition(user, grantedPermissions = []) {
+  return [...new Set([
+    ...grantedPermissions,
+    ...(POSITION_PERMISSIONS[user?.position] || []),
+  ])];
+}
+
 function isManager(actor) {
   return positionOf(actor) === "MANAGER";
 }
@@ -68,6 +89,7 @@ function canDeleteTask(actor, task) {
 
 module.exports = {
   POSITION_RANK,
+  permissionsForPosition,
   isManager,
   canViewUser,
   canAssignTask,

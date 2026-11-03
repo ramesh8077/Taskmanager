@@ -272,6 +272,42 @@ const ticketQuery = z
   })
   .strict();
 
+const workItemListQuery = z
+  .object({
+    view: z.enum(["tasks", "tickets"]).default("tasks"),
+    status: z.enum(["PENDING", "IN_PROGRESS", "IN_REVIEW", "DONE", "BLOCKED", "ALL"]).default("PENDING"),
+    assignedTo: positiveId.optional(),
+    assigneePosition: z.string().max(100).transform((value) => value.split(",").map((item) => item.trim()).filter(Boolean))
+      .pipe(z.array(z.enum(["MANAGER", "SUB_MANAGER", "TEAM_LEAD", "EMPLOYEE", "INTERN"])).max(5))
+      .optional(),
+    createdBy: positiveId.optional(),
+    department: z.string().max(500).transform((value) => value.split(",").map((item) => item.trim()).filter(Boolean))
+      .pipe(z.array(z.enum(DEPARTMENTS)).max(DEPARTMENTS.length))
+      .optional(),
+    priority: z.string().max(100).transform((value) => value.split(",").map((item) => item.trim()).filter(Boolean))
+      .pipe(z.array(z.enum(["LOW", "MEDIUM", "HIGH", "URGENT"])).max(4))
+      .optional(),
+    deadlineFrom: z.string().date().optional(),
+    deadlineTo: z.string().date().optional(),
+    createdFrom: z.string().date().optional(),
+    createdTo: z.string().date().optional(),
+    overdue: z.enum(["true", "false"]).optional(),
+    search: z.string().trim().max(100).optional(),
+    page: z.coerce.number().int().positive().max(1000000).default(1),
+    pageSize: z.coerce.number().int().positive().max(100).default(20),
+    sortBy: z.enum(["createdAt", "deadline", "priority"]).default("deadline"),
+    sortOrder: z.enum(["ASC", "DESC"]).default("ASC"),
+  })
+  .strict()
+  .refine(
+    (query) => !query.deadlineFrom || !query.deadlineTo || query.deadlineFrom <= query.deadlineTo,
+    { message: "deadlineFrom must be before or equal to deadlineTo.", path: ["deadlineFrom"] },
+  )
+  .refine(
+    (query) => !query.createdFrom || !query.createdTo || query.createdFrom <= query.createdTo,
+    { message: "createdFrom must be before or equal to createdTo.", path: ["createdFrom"] },
+  );
+
 module.exports = {
   loginBody,
   registerBody,
@@ -301,4 +337,5 @@ module.exports = {
   ticketDeadlineBody,
   reopenTicketBody,
   ticketQuery,
+  workItemListQuery,
 };

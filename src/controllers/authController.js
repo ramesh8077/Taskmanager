@@ -18,6 +18,7 @@ const crypto = require("node:crypto");
 const { Op } = require("sequelize");
 const db = require("../models");
 const appConfig = require("../config/app.config");
+const { permissionsForPosition } = require("../lib/permissions");
 const {
   DEPARTMENTS,
   POSITIONS,
@@ -302,7 +303,10 @@ const login = async (req, res) => {
       isActive: user.isActive,
       joinedAt: user.joinedAt,
       lastActivityAt: user.lastActivityAt,
-      permissions: role.permissions.map((permission) => permission.name),
+      permissions: permissionsForPosition(
+        user,
+        role.permissions.map((permission) => permission.name),
+      ),
     };
 
     return res.status(200).json({
