@@ -2,7 +2,7 @@ const express = require("express");
 const router = express.Router();
 const ticketController = require("../controllers/ticketController");
 const workflowController = require("../controllers/ticketWorkflowController");
-const { verifyToken } = require("../middlewares/authMiddleware");
+const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
 const { validateRequest } = require("../middlewares/validate");
 const multer = require("multer");
 const fs = require("node:fs");
@@ -13,6 +13,7 @@ const {
   ticketStatusBody,
   ticketAssignmentBody,
   ticketDeadlineBody,
+  ticketPriorityBody,
   reopenTicketBody,
 } = require("../validators/schemas");
 const {
@@ -90,6 +91,7 @@ router.use(verifyToken);
 
 router.post(
   "/",
+  requirePermission("ticket:create"),
   validateRequest(createTicketBody),
   ticketController.createTicket
 );
@@ -108,6 +110,12 @@ router.put(
   validateRequest(idParams, "params"),
   validateRequest(ticketAssignmentBody),
   workflowController.assignTicket
+);
+router.put(
+  "/:id/priority",
+  validateRequest(idParams, "params"),
+  validateRequest(ticketPriorityBody),
+  workflowController.updatePriority
 );
 router.put(
   "/:id/status",

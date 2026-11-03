@@ -258,6 +258,96 @@
   margin-top: 20px;
 }
 
+.deadline-requests {
+  display: grid;
+  gap: 16px;
+}
+
+.deadline-requests-header,
+.deadline-request-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.deadline-requests-empty,
+.deadline-request-card {
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-card);
+  padding: 18px;
+  color: var(--text-secondary);
+}
+
+.deadline-requests-list {
+  display: grid;
+  gap: 12px;
+}
+
+.deadline-request-title h2 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 650;
+}
+
+.deadline-request-title p,
+.deadline-request-title > span {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.deadline-request-dates {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0;
+}
+
+.deadline-request-dates dt {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.deadline-request-dates dd {
+  margin: 4px 0 0;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.deadline-request-reason {
+  display: grid;
+  gap: 5px;
+  margin: 0 0 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: pre-wrap;
+}
+
+.deadline-request-reason strong {
+  color: var(--text-primary);
+}
+
+.deadline-request-note {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.deadline-request-note textarea {
+  width: 100%;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+  background: var(--surface-input);
+  padding: 9px 10px;
+  color: var(--text-primary);
+  font: inherit;
+}
+
 @media (max-width: 520px) {
   .dashboard-page-header {
     flex-direction: column;
@@ -269,6 +359,10 @@
   }
 
   .work-item-dialog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .deadline-request-dates {
     grid-template-columns: 1fr;
   }
 
@@ -719,6 +813,98 @@
   background: var(--surface-card);
   padding: 20px;
   color: var(--text-primary);
+}
+
+.work-items-dialog.work-item-details {
+  width: min(720px, 100%);
+  max-height: min(90vh, 900px);
+  overflow-y: auto;
+}
+
+.work-item-detail-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 12px;
+  margin-top: 20px;
+}
+
+.work-item-detail-actions label,
+.work-item-detail-deadline,
+.work-item-detail-close {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.work-item-detail-actions input,
+.work-item-detail-actions select,
+.work-item-detail-comments input {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  background: var(--surface-input);
+  padding: 8px 10px;
+  color: var(--text-primary);
+}
+
+.work-item-detail-actions .work-item-create-button {
+  align-self: flex-start;
+}
+
+.work-item-detail-close {
+  align-items: flex-start;
+}
+
+.work-item-detail-comments,
+.work-item-detail-history {
+  margin-top: 24px;
+  border-top: 1px solid var(--border-subtle);
+  padding-top: 16px;
+}
+
+.work-item-detail-comments h3,
+.work-item-detail-history h3 {
+  margin: 0 0 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.work-item-detail-comments form {
+  display: flex;
+  gap: 8px;
+}
+
+.work-item-detail-comments article,
+.work-item-detail-history article {
+  border-bottom: 1px solid var(--border-subtle);
+  padding: 10px 0;
+}
+
+.work-item-detail-comments article p,
+.work-item-detail-history article p {
+  margin: 0 0 5px;
+  color: var(--text-primary);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.work-item-detail-comments small,
+.work-item-detail-history small,
+.work-item-detail-muted {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.work-item-dialog-error {
+  border: 1px solid color-mix(in srgb, var(--status-danger) 35%, transparent);
+  border-radius: 7px;
+  padding: 9px 11px;
+  color: var(--status-danger);
+  font-size: 13px;
 }
 
 .work-items-dialog-header {

@@ -216,6 +216,7 @@ function normalizeWorkItem(item, view) {
     id: raw.id,
     referenceId: task ? `TASK-${raw.id}` : raw.ticketId,
     title: raw.title,
+    description: raw.description,
     assignedTo: raw.assignee
       ? {
         id: raw.assignee.id,

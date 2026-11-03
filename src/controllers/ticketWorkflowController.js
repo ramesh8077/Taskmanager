@@ -2,7 +2,13 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { Op } = require("sequelize");
 const db = require("../models");
-const { isManager, canAssignTask, canEditDeadline } = require("../lib/permissions");
+const { can } = require("../lib/rbac");
+const {
+  isManager,
+  canAssignTask,
+  canManageDeadlines,
+  canManagePriority,
+} = require("../lib/permissions");
 const {
   assignableUserIds,
   buildTicketScope,
@@ -46,6 +52,13 @@ const ticketIncludes = () => [
     as: "history",
     separate: true,
     order: [["createdAt", "ASC"]],
+    include: [{ model: User, as: "changedByUser", attributes: ["id", "name"] }],
+  },
+  {
+    model: DeadlineHistory,
+    as: "deadlineHistory",
+    separate: true,
+    order: [["changedAt", "ASC"]],
     include: [{ model: User, as: "changedByUser", attributes: ["id", "name"] }],
   },
   {
@@ -265,7 +278,16 @@ async function assignTicket(req, res) {
     const { assignedTo } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
-    if (!canManageTicket(req.user, ticket)) {
+    if (req.user.position === "INTERN") {
+      return res.status(403).json({ success: false, message: "Interns cannot reassign tickets." });
+    }
+    if (req.user.position === "EMPLOYEE" && !can(req.user, "ticket:assign")) {
+      return res.status(403).json({ success: false, message: "You do not have permission to assign tickets." });
+    }
+    if (
+      !canManageTicket(req.user, ticket) &&
+      !(Number(ticket.createdBy) === Number(req.user.id) && can(req.user, "ticket:assign"))
+    ) {
       return res.status(403).json({ success: false, message: "You cannot reassign this ticket." });
     }
     let assignee = null;
@@ -313,8 +335,16 @@ async function updateTicketStatus(req, res) {
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
     const isAdmin = adminCanManage(req.user);
     const isAssignedMember = Number(ticket.assignedTo) === Number(req.user.id);
+    if (
+      req.user.position === "INTERN" &&
+      (!isAssignedMember || !["Resolved", "Closed"].includes(status))
+    ) {
+      return res.status(403).json({ success: false, message: "Interns may only close tickets assigned to them." });
+    }
     if (status === "Closed") {
-      if (!isAdmin && Number(ticket.createdBy) !== Number(req.user.id)) return res.status(403).json({ success: false, message: "Only the creator or an administrator may close a ticket." });
+      if (!isAdmin && !isAssignedMember && !canManageTicket(req.user, ticket) && Number(ticket.createdBy) !== Number(req.user.id)) {
+        return res.status(403).json({ success: false, message: "You cannot close this ticket." });
+      }
       if (ticket.status !== "Resolved") return res.status(409).json({ success: false, message: "Only resolved tickets can be closed." });
     } else if (!isAdmin && !isAssignedMember && !canManageTicket(req.user, ticket)) {
       return res.status(403).json({ success: false, message: "You cannot update this ticket." });
@@ -358,6 +388,9 @@ async function updateTicketStatus(req, res) {
 async function resolveLegacyTicket(req, res) {
   const { id } = req.validatedParams || req.params;
   const { rootCause, resolutionNote, department, assignedTo } = req.body;
+  if (req.user.position === "INTERN") {
+    return res.status(403).json({ success: false, message: "Use the ticket close action; interns cannot reassign tickets." });
+  }
   const ticket = await getScopedTicket(req, id);
   if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
   if (!adminCanManage(req.user) && Number(ticket.assignedTo) !== Number(req.user.id) && !canManageTicket(req.user, ticket)) {
@@ -430,6 +463,9 @@ async function reopenTicket(req, res) {
     const { reason } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
+    if (req.user.position === "INTERN") {
+      return res.status(403).json({ success: false, message: "Interns cannot reopen tickets." });
+    }
     if (!adminCanManage(req.user) && Number(ticket.createdBy) !== Number(req.user.id)) {
       return res.status(403).json({ success: false, message: "Only the creator or an administrator may reopen this ticket." });
     }
@@ -457,10 +493,13 @@ async function updateDeadline(req, res) {
     const { deadline, reason } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
-    if (!canEditDeadline(req.user, ticket)) {
+    if (!canManageDeadlines(req.user) || !canManageTicket(req.user, ticket)) {
       return res.status(403).json({ success: false, message: "You cannot change this ticket's deadline." });
     }
     const oldValue = ticket.deadline;
+    if (oldValue && oldValue !== deadline && deadline <= oldValue) {
+      return res.status(400).json({ success: false, message: "An extended deadline must be later than the current deadline." });
+    }
     if (oldValue !== deadline) {
       await db.sequelize.transaction(async (transaction) => {
         ticket.deadline = deadline;
@@ -479,6 +518,30 @@ async function updateDeadline(req, res) {
   } catch (error) {
     console.error("❌ Update Ticket Deadline Error:", error);
     return res.status(500).json({ success: false, message: "Internal server error while updating ticket deadline." });
+  }
+}
+
+async function updatePriority(req, res) {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const { priority } = req.body;
+    const ticket = await getScopedTicket(req, id);
+    if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
+    if (!canManagePriority(req.user) || !canManageTicket(req.user, ticket)) {
+      return res.status(403).json({ success: false, message: "You cannot change this ticket's priority." });
+    }
+    if (ticket.priority !== priority) {
+      const oldPriority = ticket.priority;
+      await db.sequelize.transaction(async (transaction) => {
+        ticket.priority = priority;
+        await ticket.save({ transaction });
+        await recordHistory(ticket, req.user.id, "priority", oldPriority, priority, "updated", transaction);
+      });
+    }
+    return res.status(200).json({ success: true, data: { ticket } });
+  } catch (error) {
+    console.error("Update Ticket Priority Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to update ticket priority." });
   }
 }
 
@@ -608,6 +671,7 @@ module.exports = {
   resolveLegacyTicket,
   reopenTicket,
   updateDeadline,
+  updatePriority,
   addComment,
   uploadAttachment,
   downloadAttachment,

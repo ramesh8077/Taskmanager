@@ -4,8 +4,9 @@ const TicketComment = db.TicketComment;
 const TicketHistory = db.TicketHistory;
 const User = db.User;
 const { Op } = require("sequelize");
-const { canAssignTask, isManager } = require("../lib/permissions");
-const { visibleUserIds, buildTicketQuery } = require("../lib/queryFilters");
+const { canAssignTask, isManager, canManageDeadlines } = require("../lib/permissions");
+const { can } = require("../lib/rbac");
+const { visibleUserIds, assignableUserIds, buildTicketQuery } = require("../lib/queryFilters");
 const {
   scopedTicketByIdQuery,
   scopedUserQuery,
@@ -16,17 +17,36 @@ const {
  */
 const createTicket = async (req, res) => {
   try {
-    const { title, description, screenshotUrl, priority, assignedTo, deadline, projectId, taskId } = req.body;
+    const { title, description, screenshotUrl, priority, assignedTo, deadline, department, projectId, taskId } = req.body;
+    if (
+      req.user.position === "INTERN" &&
+      assignedTo != null &&
+      Number(assignedTo) !== Number(req.user.id)
+    ) {
+      return res.status(403).json({ success: false, message: "Interns cannot assign tickets to other users." });
+    }
+    if (req.user.position === "INTERN" && deadline) {
+      return res.status(403).json({ success: false, message: "Interns cannot set ticket deadlines." });
+    }
+    if (deadline && !canManageDeadlines(req.user)) {
+      return res.status(403).json({ success: false, message: "You cannot set ticket deadlines." });
+    }
     let assigneeId = null;
     let assigneeName = null;
     let assigneeDepartment = null;
     if (assignedTo !== undefined && assignedTo !== null) {
+      const selfAssignment = Number(assignedTo) === Number(req.user.id);
+      const allowedAssigneeIds = selfAssignment
+        ? []
+        : await assignableUserIds(User, req.user);
       const assignee = await User.findOne({
         where: { id: assignedTo, status: "ACTIVE", isActive: true },
       });
       if (!assignee || (
-        Number(assignedTo) !== Number(req.user.id) &&
-        !canAssignTask(req.user, assignee)
+        !selfAssignment &&
+        (!allowedAssigneeIds.includes(Number(assignee.id)) ||
+          !canAssignTask(req.user, assignee) ||
+          (req.user.position === "EMPLOYEE" && !can(req.user, "ticket:assign")))
       )) {
         return res.status(404).json({
           ok: false,
@@ -38,6 +58,24 @@ const createTicket = async (req, res) => {
       assigneeId = assignee.id;
       assigneeName = assignee.name;
       assigneeDepartment = assignee.department;
+    }
+    if (!isManager(req.user) && department && department !== req.user.department) {
+      return res.status(403).json({ success: false, message: "You can only create tickets in your own department." });
+    }
+    if (assigneeDepartment && department && assigneeDepartment !== department) {
+      return res.status(400).json({ success: false, message: "The selected department must match the assignee's department." });
+    }
+    const ticketDepartment = assigneeDepartment || (isManager(req.user) ? department : req.user.department);
+    if (!ticketDepartment) {
+      return res.status(400).json({ success: false, message: "Select a department when creating an unassigned ticket." });
+    }
+    if (req.user.position === "INTERN" && assigneeId === null) {
+      const self = await User.findByPk(req.user.id, {
+        attributes: ["id", "name", "department"],
+      });
+      assigneeId = self.id;
+      assigneeName = self.name;
+      assigneeDepartment = self.department;
     }
 
     let linkedProjectId = projectId || null;
@@ -53,14 +91,17 @@ const createTicket = async (req, res) => {
       if (!linkedTask || (projectId && Number(linkedTask.projectId) !== Number(projectId))) {
         return res.status(404).json({ success: false, message: "Task is outside your permitted scope or does not belong to the selected project." });
       }
+      if (linkedTask.department !== ticketDepartment) {
+        return res.status(400).json({ success: false, message: "The ticket and linked task must belong to the same department." });
+      }
     }
     if (linkedProjectId) {
       const project = await db.Project.findByPk(linkedProjectId);
-      const visibleIds = isManager(req.user) ? null : await visibleUserIds(User, req.user);
-      const hasVisibleTask = isManager(req.user) || (visibleIds.length > 0 &&
-        await db.Task.count({ where: { projectId: linkedProjectId, assignedTo: { [Op.in]: visibleIds } } }) > 0);
-      const isCreator = Number(project?.createdBy) === Number(req.user.id);
-      if (!project || (!isManager(req.user) && !isCreator && !hasVisibleTask)) {
+      if (
+        !project ||
+        (!isManager(req.user) && project.department !== req.user.department) ||
+        project.department !== ticketDepartment
+      ) {
         return res.status(404).json({ success: false, message: "Project is outside your permitted scope." });
       }
     }
@@ -72,7 +113,7 @@ const createTicket = async (req, res) => {
           description,
           screenshotUrl,
           priority,
-          department: assigneeDepartment || req.user.department,
+          department: ticketDepartment,
           assignedTo: assigneeId,
           deadline: deadline || null,
           projectId: linkedProjectId,
@@ -93,6 +134,24 @@ const createTicket = async (req, res) => {
         },
         { transaction }
       );
+      await TicketHistory.create({
+        ticketId: createdTicket.id,
+        changedBy: req.user.id,
+        field: "priority",
+        oldValue: null,
+        newValue: priority,
+        action: "updated",
+      }, { transaction });
+      if (deadline) {
+        await TicketHistory.create({
+          ticketId: createdTicket.id,
+          changedBy: req.user.id,
+          field: "deadline",
+          oldValue: null,
+          newValue: deadline,
+          action: "updated",
+        }, { transaction });
+      }
       if (assigneeId) {
         await TicketHistory.create({
           ticketId: createdTicket.id,

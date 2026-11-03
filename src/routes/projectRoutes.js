@@ -1,7 +1,7 @@
 /**
  * Project Routes
  * 
- * All project routes are Admin-only:
+ * Project creation and listing are restricted by controller and hierarchy scope:
  *   POST /api/projects       → Create a new project
  *   GET  /api/projects       → Get all projects with tasks
  */
@@ -13,7 +13,7 @@ const { verifyToken, requirePermission } = require("../middlewares/authMiddlewar
 const { validateRequest } = require("../middlewares/validate");
 const { createProjectBody, idParams } = require("../validators/schemas");
 
-// ─── Admin-only Routes ──────────────────────────────────────────────────────
+// ─── Project Routes ─────────────────────────────────────────────────────────
 
 router.post(
   "/",

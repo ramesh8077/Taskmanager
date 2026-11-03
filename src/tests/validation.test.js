@@ -106,7 +106,7 @@ test("ticket creation validates optional deadline and project/task links", () =>
     title: "Login issue",
     description: "Unable to sign in",
     priority: "P1",
-    department: "Support",
+    department: "Legal",
     assignedTo: 4,
     deadline: "2026-10-01",
     projectId: 2,
@@ -116,7 +116,7 @@ test("ticket creation validates optional deadline and project/task links", () =>
   assert.equal(createTicketBody.safeParse({
     title: "Login issue",
     priority: "P1",
-    department: "Support",
+    department: "Legal",
     deadline: "not-a-date",
   }).success, false);
 });

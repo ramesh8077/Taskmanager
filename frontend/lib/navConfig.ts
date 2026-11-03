@@ -15,10 +15,9 @@ export interface NavigationItem {
 
 const managers: readonly Position[] = ["MANAGER"];
 const leads: readonly Position[] = ["SUB_MANAGER", "TEAM_LEAD"];
-const managersAndSubManagers: readonly Position[] = ["MANAGER", "SUB_MANAGER"];
-const teamRoles: readonly Position[] = ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"];
+const taskCreators: readonly Position[] = ["MANAGER", "SUB_MANAGER", "TEAM_LEAD", "EMPLOYEE"];
 const employees: readonly Position[] = ["EMPLOYEE", "INTERN"];
-const everyone: readonly Position[] = [...teamRoles, ...employees];
+const everyone: readonly Position[] = [...managers, ...leads, ...employees];
 
 export const navigationItems: readonly NavigationItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: "D", allowedPositions: everyone, permission: "task:view:own" },
@@ -26,8 +25,8 @@ export const navigationItems: readonly NavigationItem[] = [
   { label: "All Tickets", href: "/dashboard/all-tickets", icon: "K", allowedPositions: managers, permission: "ticket:view:any" },
   { label: "All Teams", href: "/dashboard/teams", icon: "G", allowedPositions: managers, permission: "user:view:any" },
   { label: "Members", href: "/dashboard/members", icon: "M", allowedPositions: managers, permission: "user:view:any" },
-  { label: "Create Task", href: "/dashboard/create-task", icon: "+", allowedPositions: teamRoles, permission: "task:create" },
-  { label: "Deadline Requests", href: "/dashboard/deadline-requests", icon: "R", allowedPositions: managersAndSubManagers, permission: "task:update:own" },
+  { label: "Create Task", href: "/dashboard/create-task", icon: "+", allowedPositions: taskCreators, permission: "task:create" },
+  { label: "Deadline Requests", href: "/dashboard/deadline-requests", icon: "R", allowedPositions: ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"], permission: "task:update:own" },
   { label: "Reports", href: "/dashboard/reports", icon: "P", allowedPositions: managers, permission: "report:view:any" },
   { label: "Settings", href: "/dashboard/settings", icon: "S", allowedPositions: managers, permission: "settings:manage" },
   { label: "Team Tasks", href: "/dashboard/team-tasks", icon: "T", allowedPositions: leads, permission: "task:view:own" },

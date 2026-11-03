@@ -20,6 +20,8 @@ const {
   taskStatusBody,
   taskPriorityBody,
   taskProgressBody,
+  taskCommentBody,
+  taskAssignmentBody,
   updateTaskBody,
   taskQuery,
   idParams,
@@ -101,11 +103,25 @@ router.put(
   taskController.updatePriority
 );
 router.put(
+  "/:id/assignee",
+  verifyToken,
+  validateRequest(idParams, "params"),
+  validateRequest(taskAssignmentBody),
+  taskController.assignTask
+);
+router.put(
   "/:id/progress",
   verifyToken,
   validateRequest(idParams, "params"),
   validateRequest(taskProgressBody),
   taskController.updateProgress
+);
+router.post(
+  "/:id/comments",
+  verifyToken,
+  validateRequest(idParams, "params"),
+  validateRequest(taskCommentBody),
+  taskController.addTaskComment
 );
 router.get(
   "/:id/history",

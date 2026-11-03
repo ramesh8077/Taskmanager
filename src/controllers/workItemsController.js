@@ -120,8 +120,8 @@ async function listWorkItems(req, res) {
       Model.findAll({
         where,
         attributes: view === "tasks"
-          ? ["id", "title", "status", "priority", "department", "dueDate", "createdAt", "assignedTo", "assignedById", "createdById"]
-          : ["id", "ticketId", "title", "status", "priority", "department", "deadline", "createdAt", "assignedTo", "createdBy"],
+          ? ["id", "title", "description", "status", "priority", "department", "dueDate", "createdAt", "assignedTo", "assignedById", "createdById"]
+          : ["id", "ticketId", "title", "description", "status", "priority", "department", "deadline", "createdAt", "assignedTo", "createdBy"],
         include: view === "tasks"
           ? [
             { model: User, as: "assignee", attributes: ["id", "name", "department", "position"], required: false },

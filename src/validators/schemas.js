@@ -60,6 +60,7 @@ const createProjectBody = z
   .object({
     title: shortText(3, 200),
     description: shortText(1, 10000),
+    department: z.enum(DEPARTMENTS).optional(),
   })
   .strict();
 
@@ -88,6 +89,12 @@ const taskPriorityBody = z
 
 const taskProgressBody = z
   .object({ progress: z.coerce.number().int().min(0).max(100) })
+  .strict();
+const taskCommentBody = z
+  .object({ comment: shortText(1, 255) })
+  .strict();
+const taskAssignmentBody = z
+  .object({ assignedTo: positiveId })
   .strict();
 
 const deadlineExtensionRequestBody = z.object({
@@ -213,7 +220,7 @@ const createTicketBody = z
       .nullable()
       .transform((value) => (value === "" ? null : value)),
     priority: z.enum(["P0", "P1", "P2"]),
-    department: shortText(1, 100).optional(),
+    department: z.enum(DEPARTMENTS).optional(),
     assignedTo: positiveId.optional().nullable(),
     deadline: z.string().date().optional().nullable(),
     projectId: positiveId.optional().nullable(),
@@ -244,6 +251,9 @@ const ticketAssignmentBody = z.object({ assignedTo: positiveId.nullable() }).str
 const ticketDeadlineBody = z.object({
   deadline: z.string().date(),
   reason: shortText(1, 2000),
+}).strict();
+const ticketPriorityBody = z.object({
+  priority: z.enum(["P0", "P1", "P2", "LOW", "MEDIUM", "HIGH", "URGENT"]),
 }).strict();
 const reopenTicketBody = z.object({ reason: shortText(1, 10000) }).strict();
 
@@ -318,6 +328,8 @@ module.exports = {
   taskStatusBody,
   taskPriorityBody,
   taskProgressBody,
+  taskCommentBody,
+  taskAssignmentBody,
   updateTaskBody,
   taskQuery,
   memberSearchQuery,
@@ -335,6 +347,7 @@ module.exports = {
   ticketStatusBody,
   ticketAssignmentBody,
   ticketDeadlineBody,
+  ticketPriorityBody,
   reopenTicketBody,
   ticketQuery,
   workItemListQuery,

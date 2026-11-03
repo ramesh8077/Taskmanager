@@ -26,6 +26,7 @@
 
 const { Op } = require("sequelize");
 const db = require("../models");
+const { can } = require("../lib/rbac");
 
 const Task = db.Task;
 const Project = db.Project;
@@ -40,10 +41,13 @@ const {
   canDeleteTask,
   canUpdateProgress,
   isManager,
+  canManageDeadlines,
+  canManagePriority,
 } = require("../lib/permissions");
 const {
   buildTaskQuery,
   visibleUserIds,
+  assignableUserIds,
 } = require("../lib/queryFilters");
 
 async function findVisibleTask(actor, id, options = {}) {
@@ -100,26 +104,33 @@ const createTask = async (req, res) => {
         message: `Project with ID ${projectId} not found.`,
       });
     }
-    if (!isManager(req.user) && Number(project.createdBy) !== Number(req.user.id)) {
-      const visibleIds = await visibleUserIds(User, req.user);
-      const hasVisibleTask = visibleIds.length > 0 && await Task.count({
-        where: { projectId, assignedTo: { [Op.in]: visibleIds } },
-      }) > 0;
-      if (!hasVisibleTask) {
-        return res.status(403).json({ success: false, message: "This project is outside your permitted scope." });
-      }
-    }
-
     // ── Verify the assigned user exists and is a Member ───────────────────
     const assignee = await User.findOne({
       where: { id: assignedTo, status: "ACTIVE", isActive: true },
     });
 
-    if (!assignee || !canAssignTask(req.user, assignee)) {
+    const selfAssignment = Number(assignedTo) === Number(req.user.id);
+    const assignableIds = selfAssignment
+      ? []
+      : await assignableUserIds(User, req.user);
+    if (
+      !assignee ||
+      (!selfAssignment && (
+        !assignableIds.includes(Number(assignee.id)) ||
+        !canAssignTask(req.user, assignee)
+      )) ||
+      (!selfAssignment && req.user.position === "EMPLOYEE" && !can(req.user, "task:assign"))
+    ) {
       return res.status(403).json({
         success: false,
         message: "You cannot assign tasks to this user.",
       });
+    }
+    if (
+      (!isManager(req.user) && project.department !== req.user.department) ||
+      project.department !== assignee.department
+    ) {
+      return res.status(403).json({ success: false, message: "The project and assignee must be within the same permitted department." });
     }
 
     // ── Create the task ───────────────────────────────────────────────────
@@ -145,11 +156,27 @@ const createTask = async (req, res) => {
           changedBy: req.user.id,
           field: "task",
           oldValue: null,
-          newValue: `Created with priority: ${taskPriority}, assigned to: ${assignee.name}`,
+          newValue: `Created with deadline: ${dueDate}, priority: ${taskPriority}, assigned to: ${assignee.name}`,
           action: "created",
         },
         { transaction }
       );
+      await TaskHistory.create({
+        taskId: newTask.id,
+        changedBy: req.user.id,
+        field: "dueDate",
+        oldValue: null,
+        newValue: dueDate,
+        action: "created",
+      }, { transaction });
+      await TaskHistory.create({
+        taskId: newTask.id,
+        changedBy: req.user.id,
+        field: "assignedTo",
+        oldValue: null,
+        newValue: assignee.name,
+        action: "reassigned",
+      }, { transaction });
       await ActivityLog.create({
         actorId: req.user.id,
         action: "task.created",
@@ -475,6 +502,19 @@ const updateTask = async (req, res) => {
       });
       if (!task) return { error: "NOT_FOUND" };
       if (!canEditTask(req.user, task)) return { error: "FORBIDDEN" };
+      if (Object.hasOwn(changes, "dueDate") && !canManageDeadlines(req.user)) {
+        return { error: "DEADLINE_FORBIDDEN" };
+      }
+      if (Object.hasOwn(changes, "priority") && !canManagePriority(req.user)) {
+        return { error: "PRIORITY_FORBIDDEN" };
+      }
+      if (
+        Object.hasOwn(changes, "dueDate") &&
+        changes.dueDate !== task.dueDate &&
+        changes.dueDate <= task.dueDate
+      ) {
+        return { error: "DEADLINE_NOT_EXTENDED" };
+      }
 
       const changedFields = [];
       for (const field of ["title", "description", "priority", "dueDate"]) {
@@ -522,6 +562,15 @@ const updateTask = async (req, res) => {
     }
     if (updatedTask?.error === "FORBIDDEN") {
       return res.status(403).json({ success: false, message: "You cannot edit this task." });
+    }
+    if (updatedTask?.error === "DEADLINE_FORBIDDEN") {
+      return res.status(403).json({ success: false, message: "You cannot extend this task's deadline." });
+    }
+    if (updatedTask?.error === "PRIORITY_FORBIDDEN") {
+      return res.status(403).json({ success: false, message: "You cannot change this task's priority." });
+    }
+    if (updatedTask?.error === "DEADLINE_NOT_EXTENDED") {
+      return res.status(400).json({ success: false, message: "An extended deadline must be later than the current deadline." });
     }
     return res.status(200).json({ success: true, data: { task: updatedTask } });
   } catch (error) {
@@ -634,6 +683,12 @@ const updateStatus = async (req, res) => {
     if (!canUpdateProgress(req.user, task)) {
       return res.status(403).json({ success: false, message: "You cannot update this task's status." });
     }
+    if (
+      req.user.position === "INTERN" &&
+      (Number(task.assignedTo) !== Number(req.user.id) || status !== "Completed")
+    ) {
+      return res.status(403).json({ success: false, message: "Interns may only complete tasks assigned to them." });
+    }
 
     // ── Log status change in history ──────────────────────────────────────
     await db.sequelize.transaction(async (transaction) => {
@@ -724,6 +779,9 @@ const updateProgress = async (req, res) => {
     if (!canUpdateProgress(req.user, task)) {
       return res.status(403).json({ success: false, message: "You cannot update this task's progress." });
     }
+    if (req.user.position === "INTERN") {
+      return res.status(403).json({ success: false, message: "Interns may only close tasks assigned to them." });
+    }
     if (task.status === "Completed" && progress !== 100) {
       return res.status(409).json({
         success: false,
@@ -788,6 +846,89 @@ const updateProgress = async (req, res) => {
   }
 };
 
+const addTaskComment = async (req, res) => {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const { comment } = req.body;
+    const task = await findVisibleTask(req.user, id);
+    if (!task) {
+      return res.status(404).json({ success: false, message: "Task not found." });
+    }
+    const history = await TaskHistory.create({
+      taskId: task.id,
+      changedBy: req.user.id,
+      field: "comment",
+      oldValue: null,
+      newValue: comment,
+      action: "updated",
+    });
+    return res.status(201).json({ success: true, data: { comment: history } });
+  } catch (error) {
+    console.error("Add Task Comment Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to add this task comment." });
+  }
+};
+
+const assignTask = async (req, res) => {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const { assignedTo } = req.body;
+    const task = await findVisibleTask(req.user, id);
+    if (!task) return res.status(404).json({ success: false, message: "Task not found." });
+    if (
+      req.user.position === "INTERN" ||
+      (req.user.position === "EMPLOYEE" && !can(req.user, "task:assign")) ||
+      (!canEditTask(req.user, task) &&
+        !(Number(task.createdById) === Number(req.user.id) && can(req.user, "task:assign")))
+    ) {
+      return res.status(403).json({ success: false, message: "You cannot reassign this task." });
+    }
+    const allowedIds = await assignableUserIds(User, req.user);
+    const assignee = await User.findOne({
+      where: {
+        [Op.and]: [
+          { id: assignedTo },
+          { id: { [Op.in]: allowedIds } },
+          { status: "ACTIVE" },
+          { isActive: true },
+        ],
+      },
+      attributes: ["id", "name", "department", "position"],
+    });
+    if (!assignee || !canAssignTask(req.user, assignee)) {
+      return res.status(404).json({ success: false, message: "Assignee is outside your permitted scope." });
+    }
+    if (Number(task.assignedTo) === Number(assignee.id)) {
+      return res.status(200).json({ success: true, data: { task } });
+    }
+    const oldAssignee = task.assignee;
+    await db.sequelize.transaction(async (transaction) => {
+      task.assignedTo = assignee.id;
+      task.department = assignee.department;
+      await task.save({ transaction });
+      await TaskHistory.create({
+        taskId: task.id,
+        changedBy: req.user.id,
+        field: "assignedTo",
+        oldValue: oldAssignee?.name || "Unassigned",
+        newValue: assignee.name,
+        action: "reassigned",
+      }, { transaction });
+      await ActivityLog.create({
+        actorId: req.user.id,
+        action: "task.reassigned",
+        entityType: "task",
+        entityId: String(task.id),
+        metadata: { assignedTo: assignee.id },
+      }, { transaction });
+    });
+    return res.status(200).json({ success: true, data: { task } });
+  } catch (error) {
+    console.error("Assign Task Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to reassign this task." });
+  }
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
 // UPDATE TASK PRIORITY
 // ─────────────────────────────────────────────────────────────────────────────
@@ -832,6 +973,9 @@ const updatePriority = async (req, res) => {
     }
     if (!canEditTask(req.user, task)) {
       return res.status(403).json({ success: false, message: "You cannot edit this task's priority." });
+    }
+    if (!canManagePriority(req.user)) {
+      return res.status(403).json({ success: false, message: "You cannot change this task's priority." });
     }
 
     // ── Log priority change in history ────────────────────────────────────
@@ -917,14 +1061,49 @@ const getTaskHistory = async (req, res) => {
       ],
       order: [["createdAt", "ASC"]],
     });
+    const deadlineChanges = await DeadlineHistory.findAll({
+      where: { taskId: id },
+      include: [{
+        model: User,
+        as: "changedByUser",
+        attributes: ["id", "name"],
+      }],
+      order: [["changedAt", "ASC"]],
+    });
+    const historyEntries = history.map((entry) => entry.get({ plain: true }));
+    for (const change of deadlineChanges) {
+      const deadlineEntry = historyEntries.find((entry) =>
+        entry.field === "dueDate" &&
+        entry.newValue === change.newDeadline &&
+        Number(entry.changedBy) === Number(change.changedById)
+      );
+      if (deadlineEntry) {
+        deadlineEntry.reason = change.reason;
+      } else {
+        historyEntries.push({
+          id: `deadline-${change.id}`,
+          field: "dueDate",
+          oldValue: change.oldDeadline,
+          newValue: change.newDeadline,
+          reason: change.reason,
+          action: "deadline_changed",
+          changedBy: change.changedById,
+          changedByUser: change.changedByUser,
+          createdAt: change.changedAt,
+        });
+      }
+    }
+    historyEntries.sort((left, right) =>
+      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+    );
 
     return res.status(200).json({
       success: true,
       message: "Task history fetched successfully.",
       data: {
         task,
-        count: history.length,
-        history,
+        count: historyEntries.length,
+        history: historyEntries,
       },
     });
   } catch (error) {
@@ -945,5 +1124,7 @@ module.exports = {
   updateStatus,
   updatePriority,
   updateProgress,
+  addTaskComment,
+  assignTask,
   getTaskHistory,
 };

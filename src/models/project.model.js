@@ -38,6 +38,11 @@ module.exports = (sequelize) => {
           },
         },
       },
+      department: {
+        type: DataTypes.STRING(100),
+        allowNull: true,
+        comment: "Department that owns this project; null is reserved for legacy or unscoped projects.",
+      },
       createdBy: {
         type: DataTypes.INTEGER,
         allowNull: false,

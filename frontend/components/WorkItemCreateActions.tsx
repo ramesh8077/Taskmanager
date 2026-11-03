@@ -4,10 +4,12 @@ import { useEffect, useState } from "react";
 import API from "@/lib/axios";
 import { useAuth } from "@/context/AuthContext";
 import { can } from "@/lib/rbac";
+import { DEPARTMENTS } from "../../shared/organization";
 
 interface ProjectOption {
   id: number;
   title: string;
+  department: string | null;
 }
 
 interface MemberOption {
@@ -44,18 +46,21 @@ function getErrorMessage(error: unknown) {
 export default function WorkItemCreateActions({
   initialDialog = null,
 }: {
-  initialDialog?: "task" | "project" | null;
+  initialDialog?: "task" | "ticket" | "project" | null;
 }) {
   const { user } = useAuth();
-  const [dialog, setDialog] = useState<"task" | "project" | null>(initialDialog);
+  const [dialog, setDialog] = useState<"task" | "ticket" | "project" | null>(initialDialog);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [members, setMembers] = useState<MemberOption[]>([]);
   const [loadingOptions, setLoadingOptions] = useState(initialDialog === "task");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
+  const scopedProjects = projects.filter((project) => project.department);
   const canCreateTask = can(user, "task:create");
-  const canCreateProject = user?.position === "MANAGER" && can(user, "project:create");
+  const canCreateTicket = can(user, "ticket:create");
+  const canCreateProject = ["MANAGER", "SUB_MANAGER"].includes(user?.position || "") &&
+    can(user, "project:create");
 
   function openTaskDialog() {
     setDialog("task");
@@ -63,8 +68,14 @@ export default function WorkItemCreateActions({
     setLoadingOptions(true);
   }
 
+  function openTicketDialog() {
+    setDialog("ticket");
+    setError("");
+    setLoadingOptions(true);
+  }
+
   useEffect(() => {
-    if (dialog !== "task") return;
+    if (dialog !== "task" && dialog !== "ticket") return;
     let active = true;
     const loadTaskOptions = async () => {
       try {
@@ -94,6 +105,9 @@ export default function WorkItemCreateActions({
       await API.post("/projects", {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
+        ...(user?.position === "MANAGER"
+          ? { department: String(formData.get("department") || "") }
+          : {}),
       });
       setDialog(null);
       window.location.reload();
@@ -125,7 +139,36 @@ export default function WorkItemCreateActions({
     }
   }
 
-  if (!canCreateTask && !canCreateProject) return null;
+  async function submitTicket(formData: FormData) {
+    setError("");
+    setSubmitting(true);
+    try {
+      const assignedTo = formData.get("assignedTo");
+      const deadline = String(formData.get("deadline") || "");
+      await API.post("/tickets", {
+        title: String(formData.get("title") || ""),
+        description: String(formData.get("description") || ""),
+        priority: String(formData.get("priority") || "P2"),
+        ...(user?.position === "MANAGER" && formData.get("department")
+          ? { department: String(formData.get("department")) }
+          : {}),
+        ...(user?.position === "INTERN"
+          ? { assignedTo: user.id }
+          : assignedTo
+            ? { assignedTo: Number(assignedTo) }
+            : {}),
+        ...(deadline ? { deadline } : {}),
+      });
+      setDialog(null);
+      window.location.reload();
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  if (!canCreateTask && !canCreateTicket && !canCreateProject) return null;
 
   return (
     <>
@@ -136,6 +179,11 @@ export default function WorkItemCreateActions({
             setDialog("project");
           }}>
             + New project
+          </button>
+        )}
+        {canCreateTicket && (
+          <button type="button" className="work-item-create-button" onClick={openTicketDialog}>
+            + New ticket
           </button>
         )}
         {canCreateTask && (
@@ -161,8 +209,16 @@ export default function WorkItemCreateActions({
           >
             <div className="work-item-dialog-heading">
               <div>
-                <h2 id="work-item-dialog-title">{dialog === "task" ? "Create task" : "Create project"}</h2>
-                <p>{dialog === "task" ? "Assign work within your permitted team." : "Create a project for your workspace."}</p>
+                <h2 id="work-item-dialog-title">
+                  {dialog === "task" ? "Create task" : dialog === "ticket" ? "Create ticket" : "Create project"}
+                </h2>
+                <p>
+                  {dialog === "task"
+                    ? "Assign work within your permitted team."
+                    : dialog === "ticket"
+                      ? "Report and route an issue within your permitted scope."
+                      : "Create a project for your workspace."}
+                </p>
               </div>
               <button type="button" className="work-item-dialog-close" aria-label="Close dialog" disabled={submitting} onClick={() => setDialog(null)}>×</button>
             </div>
@@ -179,6 +235,17 @@ export default function WorkItemCreateActions({
                   Description
                   <textarea name="description" rows={4} maxLength={10000} required />
                 </label>
+                {user?.position === "MANAGER" && (
+                  <label>
+                    Department
+                    <select name="department" required defaultValue="">
+                      <option value="" disabled>Select a department</option>
+                      {DEPARTMENTS.map((department) => (
+                        <option key={department} value={department}>{department}</option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <div className="work-item-dialog-actions">
                   <button type="button" className="work-item-dialog-cancel" disabled={submitting} onClick={() => setDialog(null)}>Cancel</button>
                   <button type="submit" className="work-item-create-button is-primary" disabled={submitting}>{submitting ? "Creating…" : "Create project"}</button>
@@ -186,6 +253,61 @@ export default function WorkItemCreateActions({
               </form>
             ) : loadingOptions ? (
               <p className="work-item-dialog-loading" role="status">Loading projects and assignable team members…</p>
+            ) : dialog === "ticket" ? (
+              <form action={(formData) => void submitTicket(formData)} className="work-item-dialog-form">
+                <label>
+                  Ticket title
+                  <input name="title" minLength={3} maxLength={200} required />
+                </label>
+                <label>
+                  Description
+                  <textarea name="description" rows={4} maxLength={10000} />
+                </label>
+                <div className="work-item-dialog-grid">
+                  {user?.position === "MANAGER" && (
+                    <label>
+                      Department
+                      <select name="department" required defaultValue="">
+                        <option value="">Use assignee department</option>
+                        {DEPARTMENTS.map((department) => (
+                          <option key={department} value={department}>{department}</option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  <label>
+                    Priority
+                    <select name="priority" defaultValue="P2">
+                      <option value="P2">Low</option>
+                      <option value="P1">High</option>
+                      <option value="P0">Critical</option>
+                    </select>
+                  </label>
+                  {user?.position !== "INTERN" && can(user, "ticket:assign") && (
+                    <label>
+                      Assign to
+                      <select name="assignedTo" defaultValue="">
+                        <option value="">Unassigned</option>
+                        {members.map((member) => (
+                          <option key={member.id} value={member.id}>
+                            {member.name} · {member.department} · {member.position.replaceAll("_", " ")}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
+                  {["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(user?.position || "") && (
+                    <label>
+                      Deadline
+                      <input name="deadline" type="date" />
+                    </label>
+                  )}
+                </div>
+                <div className="work-item-dialog-actions">
+                  <button type="button" className="work-item-dialog-cancel" disabled={submitting} onClick={() => setDialog(null)}>Cancel</button>
+                  <button type="submit" className="work-item-create-button is-primary" disabled={submitting}>{submitting ? "Creating…" : "Create ticket"}</button>
+                </div>
+              </form>
             ) : (
               <form action={(formData) => void submitTask(formData)} className="work-item-dialog-form">
                 <label>
@@ -201,14 +323,15 @@ export default function WorkItemCreateActions({
                     Project
                     <select name="projectId" required defaultValue="">
                       <option value="" disabled>Select a project</option>
-                      {projects.map((project) => <option key={project.id} value={project.id}>{project.title}</option>)}
+                      {scopedProjects.map((project) => <option key={project.id} value={project.id}>{project.title} · {project.department}</option>)}
                     </select>
                   </label>
                   <label>
                     Assigned to
                     <select name="assignedTo" required defaultValue="">
                       <option value="" disabled>Select a team member</option>
-                      {members.map((member) => (
+                      <option value={user?.id}>Me ({user?.name})</option>
+                      {(can(user, "task:assign") ? members : []).map((member) => (
                         <option key={member.id} value={member.id}>
                           {member.name} · {member.department} · {member.position.replaceAll("_", " ")}
                         </option>
@@ -229,7 +352,7 @@ export default function WorkItemCreateActions({
                     </select>
                   </label>
                 </div>
-                {projects.length === 0 && (
+                {scopedProjects.length === 0 && (
                   <p className="work-item-dialog-hint">
                     There are no projects available in your scope. Ask a Manager to create a project first.
                   </p>
@@ -241,7 +364,7 @@ export default function WorkItemCreateActions({
                 )}
                 <div className="work-item-dialog-actions">
                   <button type="button" className="work-item-dialog-cancel" disabled={submitting} onClick={() => setDialog(null)}>Cancel</button>
-                  <button type="submit" className="work-item-create-button is-primary" disabled={submitting || projects.length === 0 || members.length === 0}>{submitting ? "Creating…" : "Create task"}</button>
+                  <button type="submit" className="work-item-create-button is-primary" disabled={submitting || scopedProjects.length === 0}>{submitting ? "Creating…" : "Create task"}</button>
                 </div>
               </form>
             )}

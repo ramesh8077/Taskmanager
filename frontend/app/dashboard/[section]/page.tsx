@@ -6,6 +6,7 @@ import { can } from "@/lib/rbac";
 import { navigationItems } from "@/lib/navConfig";
 import { usePathname } from "next/navigation";
 import WorkItemCreateActions from "@/components/WorkItemCreateActions";
+import DeadlineRequests from "@/components/DeadlineRequests";
 
 export default function DashboardSectionPage() {
   const { user } = useAuth();
@@ -31,6 +32,8 @@ export default function DashboardSectionPage() {
                 <WorkItemCreateActions initialDialog="task" />
               </div>
             </>
+          ) : item.href === "/dashboard/deadline-requests" ? (
+            <DeadlineRequests />
           ) : (
             <>
               <h1 className="dashboard-page-title">{item.label}</h1>

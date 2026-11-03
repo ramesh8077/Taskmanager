@@ -3,12 +3,21 @@ const assert = require("node:assert/strict");
 const { Op } = require("sequelize");
 const {
   visibleUserWhere,
+  visibleUserIds,
+  assignableUserIds,
   buildTaskQuery,
   buildTicketQuery,
 } = require("../lib/queryFilters");
 
 const User = {
-  async findAll() {
+  async findAll(options = {}) {
+    if (options.attributes?.includes("reportsToId")) {
+      return [
+        { id: 2, reportsToId: 1 },
+        { id: 3, reportsToId: 2 },
+        { id: 4, reportsToId: 8 },
+      ];
+    }
     return [{ id: 1 }, { id: 2 }];
   },
 };
@@ -17,6 +26,7 @@ const lead = {
   id: 1,
   department: "Development",
   position: "TEAM_LEAD",
+  permissions: ["task:assign", "ticket:assign"],
 };
 
 test("task filters can narrow, but cannot widen, the visible assignee scope", async () => {
@@ -107,4 +117,22 @@ test("Intern hierarchy scope is empty for team-member search", () => {
   const intern = { id: 8, department: "Development", position: "INTERN" };
   const where = visibleUserWhere(intern, { includeSelf: false });
   assert.deepEqual(where.id[Op.in], []);
+});
+
+test("Team Lead visibility follows their reporting tree rather than department peers", async () => {
+  assert.deepEqual(
+    (await visibleUserIds(User, lead)).sort((left, right) => left - right),
+    [1, 2, 3],
+  );
+  assert.deepEqual(
+    (await visibleUserIds(User, lead, { includeSelf: false })).sort((left, right) => left - right),
+    [2, 3],
+  );
+});
+
+test("Team Lead assignment options exclude same-department peers outside their reporting tree", async () => {
+  assert.deepEqual(
+    (await assignableUserIds(User, lead)).sort((left, right) => left - right),
+    [2, 3],
+  );
 });

@@ -8,26 +8,48 @@ const POSITION_PERMISSIONS = Object.freeze({
   MANAGER: [
     "project:create",
     "task:create",
+    "task:assign",
     "task:view:any",
     "task:update:any",
+    "ticket:create",
+    "ticket:assign",
     "ticket:view:any",
+    "ticket:update:any",
     "user:view:any",
     "report:view:any",
     "settings:manage",
   ],
-  SUB_MANAGER: ["task:create", "user:view:team"],
-  TEAM_LEAD: ["task:create", "user:view:team"],
+  SUB_MANAGER: ["project:create", "task:create", "task:assign", "ticket:create", "ticket:assign", "user:view:team"],
+  TEAM_LEAD: ["task:create", "task:assign", "ticket:create", "ticket:assign", "user:view:team"],
 });
 
 function permissionsForPosition(user, grantedPermissions = []) {
-  return [...new Set([
+  const permissions = [...new Set([
     ...grantedPermissions,
     ...(POSITION_PERMISSIONS[user?.position] || []),
   ])];
+  if (user?.position !== "INTERN") return permissions;
+  const restricted = new Set([
+    "project:create",
+    "task:create",
+    "task:assign",
+    "task:update:any",
+    "ticket:assign",
+    "ticket:update:any",
+  ]);
+  return permissions.filter((permission) => !restricted.has(permission));
 }
 
 function isManager(actor) {
   return positionOf(actor) === "MANAGER";
+}
+
+function canManageDeadlines(actor) {
+  return ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(positionOf(actor));
+}
+
+function canManagePriority(actor) {
+  return ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(positionOf(actor));
 }
 
 function canViewUser(actor, target) {
@@ -92,6 +114,8 @@ module.exports = {
   POSITION_RANK,
   permissionsForPosition,
   isManager,
+  canManageDeadlines,
+  canManagePriority,
   canViewUser,
   canAssignTask,
   canEditTask,

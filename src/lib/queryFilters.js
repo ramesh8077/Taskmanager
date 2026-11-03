@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const { POSITION_RANK } = require("../../shared/organization");
+const { can } = require("../../shared/rbac");
 const { isManager } = require("./permissions");
 
 const positionNames = Object.keys(POSITION_RANK);
@@ -26,6 +27,37 @@ function visibleUserWhere(actor, { includeSelf = true } = {}) {
 }
 
 async function visibleUserIds(User, actor, { includeSelf = true } = {}) {
+  if (actor?.position === "TEAM_LEAD") {
+    const positions = lowerPositions(actor);
+    const users = positions.length
+      ? await User.findAll({
+        where: {
+          department: actor.department,
+          position: { [Op.in]: positions },
+        },
+        attributes: ["id", "reportsToId"],
+        raw: true,
+      })
+      : [];
+    const childrenByManager = new Map();
+    for (const user of users) {
+      const managerId = Number(user.reportsToId);
+      if (!childrenByManager.has(managerId)) childrenByManager.set(managerId, []);
+      childrenByManager.get(managerId).push(Number(user.id));
+    }
+    const descendants = new Set();
+    const pending = [Number(actor.id)];
+    while (pending.length) {
+      const managerId = pending.pop();
+      for (const reportId of childrenByManager.get(managerId) || []) {
+        if (descendants.has(reportId)) continue;
+        descendants.add(reportId);
+        pending.push(reportId);
+      }
+    }
+    if (includeSelf) descendants.add(Number(actor.id));
+    return [...descendants];
+  }
   const users = await User.findAll({
     where: visibleUserWhere(actor, { includeSelf }),
     attributes: ["id"],
@@ -43,6 +75,10 @@ async function assignableUserIds(User, actor) {
       raw: true,
     });
     return users.map(({ id }) => Number(id));
+  }
+  if (!can(actor, "task:assign") && !can(actor, "ticket:assign")) return [];
+  if (actor.position === "TEAM_LEAD") {
+    return visibleUserIds(User, actor, { includeSelf: false });
   }
   const positions = lowerPositions(actor);
   if (!positions.length) return [];

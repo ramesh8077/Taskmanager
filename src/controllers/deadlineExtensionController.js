@@ -1,6 +1,6 @@
 const { Op } = require("sequelize");
 const db = require("../models");
-const { canEditDeadline, isManager } = require("../lib/permissions");
+const { canEditDeadline, canManageDeadlines, isManager } = require("../lib/permissions");
 const { visibleUserIds } = require("../lib/queryFilters");
 
 const Task = db.Task;
@@ -12,6 +12,9 @@ const ActivityLog = db.ActivityLog;
 
 async function createRequest(req, res) {
   try {
+    if (req.user.position === "INTERN") {
+      return res.status(403).json({ success: false, message: "Interns cannot request deadline extensions." });
+    }
     const { id: taskId } = req.validatedParams || req.params;
     const { requestedDeadline, reason } = req.body;
     const task = await Task.findOne({
@@ -139,7 +142,13 @@ async function reviewRequest(req, res) {
         }],
       });
       if (!request) return { error: "NOT_FOUND" };
-      if (!request.task || !canEditDeadline(req.user, request.task)) return { error: "FORBIDDEN" };
+      const visibleAssigneeIds = await visibleUserIds(User, req.user);
+      if (
+        !request.task ||
+        !visibleAssigneeIds.includes(Number(request.task.assignedTo)) ||
+        !canManageDeadlines(req.user) ||
+        !canEditDeadline(req.user, request.task)
+      ) return { error: "FORBIDDEN" };
       if (request.status !== "PENDING") return { error: "ALREADY_REVIEWED" };
       if (request.task.dueDate !== request.currentDeadline) return { error: "DEADLINE_CHANGED" };
       if (

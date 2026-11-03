@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import API from "@/lib/axios";
 import { useAuth } from "@/context/AuthContext";
+import WorkItemDetails from "@/components/WorkItemDetails";
 
 type View = "tasks" | "tickets";
 type Status = "PENDING" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "BLOCKED" | "ALL";
@@ -37,16 +38,18 @@ interface PersonOption {
   position: Position | "MANAGER";
 }
 
-interface WorkItem {
+export interface WorkItem {
   type: "task" | "ticket";
   id: number;
   referenceId: string;
   title: string;
+  description?: string | null;
   assignedTo: PersonOption | null;
   createdBy: Pick<PersonOption, "id" | "name" | "position"> | null;
   createdAt: string;
   department: string;
   priority: string;
+  rawPriority?: string;
   deadline: string | null;
   status: string;
   rawStatus: string;
@@ -726,31 +729,11 @@ export default function WorkItemsTable() {
       )}
 
       {selectedItem && (
-        <div className="work-items-dialog-backdrop" role="presentation" onClick={() => setSelectedItem(null)}>
-          <section
-            className="work-items-dialog"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="work-item-dialog-title"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="work-items-dialog-header">
-              <div>
-                <span className="work-items-id">{selectedItem.referenceId}</span>
-                <h2 id="work-item-dialog-title">{selectedItem.title}</h2>
-              </div>
-              <button type="button" aria-label="Close details" onClick={() => setSelectedItem(null)}>×</button>
-            </div>
-            <dl>
-              <div><dt>Assigned to</dt><dd>{selectedItem.assignedTo?.name || "Unassigned"}</dd></div>
-              <div><dt>Created by</dt><dd>{selectedItem.createdBy?.name || "—"}</dd></div>
-              <div><dt>Department</dt><dd>{selectedItem.department}</dd></div>
-              <div><dt>Priority</dt><dd>{selectedItem.priority}</dd></div>
-              <div><dt>Deadline</dt><dd>{formatDate(selectedItem.deadline)}</dd></div>
-              <div><dt>Status</dt><dd>{selectedItem.rawStatus}</dd></div>
-            </dl>
-          </section>
-        </div>
+        <WorkItemDetails
+          item={selectedItem}
+          assignableUsers={result?.filterOptions.assignees || []}
+          onClose={() => setSelectedItem(null)}
+        />
       )}
     </section>
   );

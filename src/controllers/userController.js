@@ -20,7 +20,7 @@ const {
   isManager,
   POSITION_RANK,
 } = require("../lib/permissions");
-const { assignableUserIds, visibleUserWhere } = require("../lib/queryFilters");
+const { assignableUserIds, visibleUserIds } = require("../lib/queryFilters");
 const { REPORTING_POSITIONS } = require("../../shared/organization");
 
 function taskScope(memberId, query) {
@@ -92,9 +92,10 @@ const getMembers = async (req, res) => {
 const searchTeamMembers = async (req, res) => {
   try {
     const { q = "" } = req.validatedQuery || req.query;
+    const teamIds = await visibleUserIds(User, req.user, { includeSelf: false });
     const where = {
       [Op.and]: [
-        visibleUserWhere(req.user, { includeSelf: false }),
+        { id: { [Op.in]: teamIds } },
         { status: "ACTIVE", isActive: true },
         ...(q ? [{ [Op.or]: [
           { name: { [Op.like]: `%${q}%` } },

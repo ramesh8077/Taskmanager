@@ -8,6 +8,8 @@ const {
   canUpdateProgress,
   canDeleteTask,
   permissionsForPosition,
+  canManageDeadlines,
+  canManagePriority,
 } = require("../lib/permissions");
 const { registerBody } = require("../validators/schemas");
 
@@ -45,6 +47,7 @@ test("users can view themselves but cannot assign tasks to equal or higher posit
   assert.equal(canAssignTask(developmentLead, developmentLead), false);
   assert.equal(canAssignTask(developmentEmployee, developmentLead), false);
   assert.equal(canAssignTask(developmentLead, developmentEmployee), true);
+  assert.equal(canAssignTask(developmentEmployee, { ...developmentEmployee, id: 5, position: "INTERN" }), true);
 });
 
 test("deadline edits require higher rank; assignees can still update their progress", () => {
@@ -68,11 +71,21 @@ test("task deletion requires Manager or creator authority over the assignee", ()
 });
 
 test("position capabilities expose only hierarchy dashboard actions", () => {
+  const subManagerPermissions = permissionsForPosition(
+    { position: "SUB_MANAGER" },
+    ["task:view:own", "ticket:view:own"],
+  );
+  assert.ok(subManagerPermissions.includes("project:create"));
+  assert.ok(subManagerPermissions.includes("task:create"));
+  assert.ok(subManagerPermissions.includes("ticket:create"));
+
   const teamLeadPermissions = permissionsForPosition(
     { position: "TEAM_LEAD" },
     ["task:view:own"],
   );
   assert.ok(teamLeadPermissions.includes("task:create"));
+  assert.ok(teamLeadPermissions.includes("ticket:create"));
+  assert.ok(teamLeadPermissions.includes("task:assign"));
   assert.ok(teamLeadPermissions.includes("user:view:team"));
   assert.ok(!teamLeadPermissions.includes("user:view:any"));
 
@@ -82,12 +95,38 @@ test("position capabilities expose only hierarchy dashboard actions", () => {
   );
   assert.ok(!employeePermissions.includes("task:create"));
   assert.ok(!employeePermissions.includes("user:view:team"));
+  assert.ok(permissionsForPosition(
+    { position: "EMPLOYEE" },
+    ["task:view:own", "task:create", "task:assign"],
+  ).includes("task:create"));
+  const internPermissions = permissionsForPosition(
+    { position: "INTERN" },
+    ["ticket:create", "task:create", "task:assign", "ticket:assign", "task:update:any"],
+  );
+  assert.ok(internPermissions.includes("ticket:create"));
+  assert.ok(!internPermissions.includes("task:create"));
+  assert.ok(!internPermissions.includes("task:assign"));
+  assert.ok(!internPermissions.includes("ticket:assign"));
+  assert.ok(!internPermissions.includes("task:update:any"));
 
   const managerPermissions = permissionsForPosition({ position: "MANAGER" }, []);
   assert.ok(managerPermissions.includes("project:create"));
   assert.ok(managerPermissions.includes("task:view:any"));
   assert.ok(managerPermissions.includes("ticket:view:any"));
   assert.ok(managerPermissions.includes("settings:manage"));
+});
+
+test("only Managers, Sub-Managers, and Team Leads can manage deadlines and priorities", () => {
+  for (const position of ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"]) {
+    const actor = { position };
+    assert.equal(canManageDeadlines(actor), true);
+    assert.equal(canManagePriority(actor), true);
+  }
+  for (const position of ["EMPLOYEE", "INTERN"]) {
+    const actor = { position };
+    assert.equal(canManageDeadlines(actor), false);
+    assert.equal(canManagePriority(actor), false);
+  }
 });
 
 test("registration schema requires department, position, and valid reporting selection", () => {

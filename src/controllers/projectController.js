@@ -12,6 +12,7 @@
 const { Op } = require("sequelize");
 const db = require("../models");
 const { isManager } = require("../lib/permissions");
+const { can } = require("../lib/rbac");
 const { visibleUserIds } = require("../lib/queryFilters");
 
 const Project = db.Project;
@@ -25,18 +26,7 @@ async function projectAccess(req, projectId) {
     ? { id: projectId }
     : {
       id: projectId,
-      [Op.or]: [
-        { createdBy: req.user.id },
-        {
-          id: {
-            [Op.in]: await Task.findAll({
-              where: { assignedTo: { [Op.in]: visibleIds } },
-              attributes: ["projectId"],
-              raw: true,
-            }).then((tasks) => tasks.map((task) => task.projectId)),
-          },
-        },
-      ],
+      department: req.user.department,
     };
   return { where, visibleIds };
 }
@@ -48,14 +38,14 @@ async function projectAccess(req, projectId) {
 /**
  * @desc    Create a new project
  * @route   POST /api/projects
- * @access  Private (Admin only)
+ * @access  Private (Manager or Sub-Manager)
  */
 const createProject = async (req, res) => {
   try {
-    if (!isManager(req.user)) {
-      return res.status(403).json({ success: false, message: "Only a Manager can create projects." });
+    if (!can(req.user, "project:create")) {
+      return res.status(403).json({ success: false, message: "You cannot create projects." });
     }
-    const { title, description } = req.body;
+    const { title, description, department } = req.body;
 
     // ── Validate required fields ──────────────────────────────────────────
     if (!title || !description) {
@@ -64,12 +54,16 @@ const createProject = async (req, res) => {
         message: "Please provide both title and description.",
       });
     }
+    if (isManager(req.user) && !department) {
+      return res.status(400).json({ success: false, message: "Select a department for this project." });
+    }
 
-    // ── Create project (createdBy is auto-set from the authenticated user) ─
+    const projectDepartment = isManager(req.user) ? department : req.user.department;
     const newProject = await Project.create({
       title,
       description,
-      createdBy: req.user.id, // From verifyToken middleware
+      department: projectDepartment,
+      createdBy: req.user.id,
     });
 
     return res.status(201).json({
@@ -157,22 +151,10 @@ const getAllProjects = async (req, res) => {
   try {
     const isAdmin = isManager(req.user);
     const visibleIds = isAdmin ? null : await visibleUserIds(User, req.user);
-    const visibleProjectIds = visibleIds
-      ? (await Task.findAll({
-        where: { assignedTo: { [Op.in]: visibleIds } },
-        attributes: ["projectId"],
-        raw: true,
-      })).map((task) => task.projectId).filter(Boolean)
-      : null;
     const projects = await Project.findAll({
       where: isAdmin
         ? {}
-        : {
-          [Op.or]: [
-            { createdBy: req.user.id },
-            { id: { [Op.in]: visibleProjectIds } },
-          ],
-        },
+        : { department: req.user.department },
       include: [
         {
           model: User,
