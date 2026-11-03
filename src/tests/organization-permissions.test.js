@@ -84,6 +84,7 @@ test("position capabilities expose only hierarchy dashboard actions", () => {
   assert.ok(!employeePermissions.includes("user:view:team"));
 
   const managerPermissions = permissionsForPosition({ position: "MANAGER" }, []);
+  assert.ok(managerPermissions.includes("project:create"));
   assert.ok(managerPermissions.includes("task:view:any"));
   assert.ok(managerPermissions.includes("ticket:view:any"));
   assert.ok(managerPermissions.includes("settings:manage"));

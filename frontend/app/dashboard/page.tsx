@@ -1,6 +1,7 @@
 "use client";
 
 import WorkItemsTable from "@/components/WorkItemsTable";
+import WorkItemCreateActions from "@/components/WorkItemCreateActions";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
 
@@ -26,6 +27,7 @@ export default function DashboardPage() {
               {user?.name} · {user?.department} · {positionLabel}
             </p>
           </div>
+          <WorkItemCreateActions />
         </div>
         <WorkItemsTable />
       </section>

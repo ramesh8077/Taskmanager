@@ -9,7 +9,7 @@
 const express = require("express");
 const router = express.Router();
 const projectController = require("../controllers/projectController");
-const { verifyToken } = require("../middlewares/authMiddleware");
+const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
 const { validateRequest } = require("../middlewares/validate");
 const { createProjectBody, idParams } = require("../validators/schemas");
 
@@ -18,6 +18,7 @@ const { createProjectBody, idParams } = require("../validators/schemas");
 router.post(
   "/",
   verifyToken,
+  requirePermission("project:create"),
   validateRequest(createProjectBody),
   projectController.createProject
 );

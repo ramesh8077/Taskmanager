@@ -6,6 +6,7 @@ const idOf = (user) => Number(user?.id);
 
 const POSITION_PERMISSIONS = Object.freeze({
   MANAGER: [
+    "project:create",
     "task:create",
     "task:view:any",
     "task:update:any",

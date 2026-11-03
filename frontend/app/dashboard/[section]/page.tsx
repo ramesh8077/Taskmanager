@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { can } from "@/lib/rbac";
 import { navigationItems } from "@/lib/navConfig";
 import { usePathname } from "next/navigation";
+import WorkItemCreateActions from "@/components/WorkItemCreateActions";
 
 export default function DashboardSectionPage() {
   const { user } = useAuth();
@@ -20,10 +21,24 @@ export default function DashboardSectionPage() {
     <ProtectedRoute>
       {permitted ? (
         <section className="dashboard-placeholder">
-          <h1 className="dashboard-page-title">{item.label}</h1>
-          <p className="dashboard-page-subtitle">
-            This section is coming soon.
-          </p>
+          {item.href === "/dashboard/create-task" ? (
+            <>
+              <h1 className="dashboard-page-title">Create task</h1>
+              <p className="dashboard-page-subtitle">
+                Create a task and assign it to a member in your permitted scope.
+              </p>
+              <div className="dashboard-create-route-action">
+                <WorkItemCreateActions initialDialog="task" />
+              </div>
+            </>
+          ) : (
+            <>
+              <h1 className="dashboard-page-title">{item.label}</h1>
+              <p className="dashboard-page-subtitle">
+                This section is coming soon.
+              </p>
+            </>
+          )}
         </section>
       ) : (
         <section className="dashboard-placeholder" role="alert">
