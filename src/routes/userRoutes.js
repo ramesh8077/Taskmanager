@@ -42,6 +42,11 @@ router.get(
 );
 
 router.get(
+  "/directory",
+  verifyToken,
+  userController.getDirectory
+);
+router.get(
   "/members",
   verifyToken,
   userController.getMembers

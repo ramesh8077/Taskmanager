@@ -233,7 +233,11 @@ function errorText(error: unknown) {
   return "Could not load work items. Please try again.";
 }
 
-export default function WorkItemsTable() {
+export default function WorkItemsTable({
+  fixedView,
+}: {
+  fixedView?: View;
+}) {
   const { user } = useAuth();
   const [filters, setFilters] = useState(initialFilters);
   const [filtersReady, setFiltersReady] = useState(false);
@@ -252,12 +256,17 @@ export default function WorkItemsTable() {
   useEffect(() => {
     const onPopState = () => {
       const restoredFilters = readFilters();
+      if (fixedView) restoredFilters.view = fixedView;
       filtersRef.current = restoredFilters;
       setFilters(restoredFilters);
     };
     window.addEventListener("popstate", onPopState);
     const timer = window.setTimeout(() => {
       const restored = readFilters();
+      if (fixedView) {
+        restored.view = fixedView;
+        restored.status = "ALL";
+      }
       filtersRef.current = restored;
       setFilters(restored);
       writeFilters(restored, true);
@@ -267,7 +276,7 @@ export default function WorkItemsTable() {
       window.clearTimeout(timer);
       window.removeEventListener("popstate", onPopState);
     };
-  }, []);
+  }, [fixedView]);
 
   useEffect(() => {
     if (!filtersReady) return;
@@ -429,7 +438,7 @@ export default function WorkItemsTable() {
   return (
     <section className="work-items" aria-label="Tasks and tickets">
       <div className="work-items-toolbar">
-        <div className="work-items-view-switch" role="tablist" aria-label="Work item type">
+        {!fixedView && <div className="work-items-view-switch" role="tablist" aria-label="Work item type">
           <button
             type="button"
             role="tab"
@@ -448,7 +457,7 @@ export default function WorkItemsTable() {
           >
             Tickets <span>{result?.viewCounts.tickets ?? "—"}</span>
           </button>
-        </div>
+        </div>}
         <label className="work-items-search">
           <span className="sr-only">Search</span>
           <input

@@ -8,6 +8,7 @@
 
 const { Op } = require("sequelize");
 const db = require("../models");
+const { can } = require("../lib/rbac");
 
 const User = db.User;
 const Task = db.Task;
@@ -87,6 +88,61 @@ const getMembers = async (req, res) => {
       success: false,
       message: "Internal server error while fetching members.",
     });
+  }
+};
+
+// Manager directory data for the All Teams and Members dashboard pages.
+const getDirectory = async (req, res) => {
+  try {
+    if (!can(req.user, "user:view:any")) {
+      return res.status(403).json({ success: false, message: "You do not have permission to view the team directory." });
+    }
+    const members = await User.findAll({
+      attributes: ["id", "name", "email", "department", "position", "employeeId", "isActive", "status", "reportsToId", "joinedAt", "lastActivityAt"],
+      include: [{
+        model: User,
+        as: "reportsTo",
+        attributes: ["id", "name", "position"],
+        required: false,
+      }],
+      order: [["department", "ASC"], ["position", "ASC"], ["name", "ASC"]],
+    });
+    const taskRows = await Task.findAll({
+      attributes: [
+        "department",
+        "status",
+        [db.sequelize.fn("COUNT", db.sequelize.col("id")), "count"],
+      ],
+      group: ["department", "status"],
+      raw: true,
+    });
+    const teamsByDepartment = new Map();
+    for (const member of members) {
+      const department = member.department || "Unassigned";
+      if (!teamsByDepartment.has(department)) {
+        teamsByDepartment.set(department, { department, memberCount: 0, activeMemberCount: 0, leads: [], openTasks: 0, completedTasks: 0 });
+      }
+      const team = teamsByDepartment.get(department);
+      team.memberCount += 1;
+      if (member.isActive && member.status === "ACTIVE") team.activeMemberCount += 1;
+      if (["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(member.position) && member.isActive && member.status === "ACTIVE") {
+        team.leads.push({ id: member.id, name: member.name, position: member.position });
+      }
+    }
+    for (const task of taskRows) {
+      const team = teamsByDepartment.get(task.department || "Unassigned");
+      if (!team) continue;
+      if (["Completed", "DONE"].includes(task.status)) team.completedTasks += Number(task.count);
+      else team.openTasks += Number(task.count);
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Team directory fetched successfully.",
+      data: { members, teams: [...teamsByDepartment.values()] },
+    });
+  } catch (error) {
+    console.error("Get Team Directory Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to load the team directory." });
   }
 };
 
@@ -477,6 +533,7 @@ const updateMember = async (req, res) => {
 
 module.exports = {
   getMembers,
+  getDirectory,
   searchTeamMembers,
   getMemberOverview,
   getMemberDetail,

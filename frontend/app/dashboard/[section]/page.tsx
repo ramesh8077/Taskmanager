@@ -7,6 +7,8 @@ import { navigationItems } from "@/lib/navConfig";
 import { usePathname } from "next/navigation";
 import WorkItemCreateActions from "@/components/WorkItemCreateActions";
 import DeadlineRequests from "@/components/DeadlineRequests";
+import WorkItemsTable from "@/components/WorkItemsTable";
+import DashboardDirectory from "@/components/DashboardDirectory";
 
 export default function DashboardSectionPage() {
   const { user } = useAuth();
@@ -22,7 +24,19 @@ export default function DashboardSectionPage() {
     <ProtectedRoute>
       {permitted ? (
         <section className="dashboard-placeholder">
-          {item.href === "/dashboard/create-task" ? (
+          {item.href === "/dashboard/all-tasks" || item.href === "/dashboard/all-tickets" ? (
+            <>
+              <div className="dashboard-page-header">
+                <div>
+                  <h1 className="dashboard-page-title">{item.href.endsWith("all-tasks") ? "All Tasks" : "All Tickets"}</h1>
+                  <p className="dashboard-page-subtitle">{user?.name} · {user?.department} · {user?.position.toLowerCase().replaceAll("_", " ")}</p>
+                </div>
+              </div>
+              <WorkItemsTable fixedView={item.href.endsWith("all-tasks") ? "tasks" : "tickets"} />
+            </>
+          ) : item.href === "/dashboard/teams" || item.href === "/dashboard/members" ? (
+            <DashboardDirectory mode={item.href.endsWith("teams") ? "teams" : "members"} />
+          ) : item.href === "/dashboard/create-task" ? (
             <>
               <h1 className="dashboard-page-title">Create task</h1>
               <p className="dashboard-page-subtitle">
