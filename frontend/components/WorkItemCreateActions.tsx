@@ -357,7 +357,7 @@ export default function WorkItemCreateActions({
                     There are no projects available in your scope. Ask a Manager to create a project first.
                   </p>
                 )}
-                {members.length === 0 && (
+                {members.length === 0 && can(user, "task:assign") && (
                   <p className="work-item-dialog-hint">
                     There are no team members you can assign tasks to.
                   </p>

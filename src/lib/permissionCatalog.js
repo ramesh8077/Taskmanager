@@ -57,6 +57,7 @@ const rolePermissions = {
     "attachment:create:own",
   ],
   EMPLOYEE: [
+    "task:create",
     "task:view:own",
     "task:update:own",
     "ticket:create",
