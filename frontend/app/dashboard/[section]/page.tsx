@@ -13,6 +13,7 @@ import TeamDirectory from "@/components/TeamDirectory";
 import WorkspaceReports from "@/components/WorkspaceReports";
 import WorkspaceSettings from "@/components/WorkspaceSettings";
 import WorkspaceProfile from "@/components/WorkspaceProfile";
+import ProjectsDirectory from "@/components/ProjectsDirectory";
 
 export default function DashboardSectionPage() {
   const { user } = useAuth();
@@ -52,6 +53,8 @@ export default function DashboardSectionPage() {
             </>
           ) : item.href === "/dashboard/my-team" ? (
             <TeamDirectory />
+          ) : item.href === "/dashboard/projects" ? (
+            <ProjectsDirectory />
           ) : item.href === "/dashboard/reports" ? (
             <WorkspaceReports />
           ) : item.href === "/dashboard/settings" ? (
