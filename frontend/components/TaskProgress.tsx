@@ -51,12 +51,14 @@ export function TaskProgressControl({
   disabled = false,
   onSave,
   size = 48,
+  label = "Task progress",
 }: {
   progress: number;
   status: string;
   disabled?: boolean;
   onSave: (progress: number) => Promise<boolean>;
   size?: number;
+  label?: string;
 }) {
   const [draft, setDraft] = useState<{ value: number; baseline: number } | null>(null);
   const [saving, setSaving] = useState(false);
@@ -72,11 +74,11 @@ export function TaskProgressControl({
     }
   };
   return (
-    <div className="flex items-center gap-3 min-w-[150px]" aria-label="Update task progress">
-      <TaskProgressCircle progress={status === "Completed" ? 100 : progress} size={size} />
+    <div className="flex items-center gap-3 min-w-[150px]" aria-label={`Update ${label.toLowerCase()}`}>
+      <TaskProgressCircle progress={status === "Completed" ? 100 : progress} size={size} label={label} />
       <div className="min-w-0 flex-1">
         <input
-          aria-label={`Task progress, ${value}%`}
+          aria-label={`${label}, ${value}%`}
           type="range"
           min={0}
           max={99}

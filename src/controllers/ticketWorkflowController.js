@@ -358,14 +358,17 @@ async function updateTicketStatus(req, res) {
     const previousStatus = ticket.status;
     if (previousStatus !== status || (status === "Resolved" && ticket.rootCause !== resolutionNote)) {
       await db.sequelize.transaction(async (transaction) => {
+        const oldProgress = ticket.progress;
         ticket.status = status;
         if (status === "Resolved") {
           ticket.rootCause = resolutionNote;
           ticket.resolvedBy = req.user.id;
           ticket.resolvedAt = new Date();
+          ticket.progress = 100;
         }
         await ticket.save({ transaction });
         if (previousStatus !== status) await recordHistory(ticket, req.user.id, "status", previousStatus, status, "status_changed", transaction);
+        if (oldProgress !== ticket.progress) await recordHistory(ticket, req.user.id, "progress", String(oldProgress), String(ticket.progress), "updated", transaction);
         if (status === "Resolved" && resolutionNote) {
           await recordHistory(ticket, req.user.id, "resolution", null, resolutionNote.slice(0, 255), "resolved", transaction);
           await notifyUsers([ticket.createdBy].filter((userId) => Number(userId) !== Number(req.user.id)), {
@@ -382,6 +385,101 @@ async function updateTicketStatus(req, res) {
   } catch (error) {
     console.error("❌ Update Ticket Status Error:", error);
     return res.status(500).json({ success: false, message: "Internal server error while updating ticket status." });
+  }
+}
+
+async function updateTicketProgress(req, res) {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const { progress } = req.validatedBody || req.body;
+    const ticket = await getScopedTicket(req, id);
+    if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
+    if (req.user.position === "INTERN") {
+      return res.status(403).json({ success: false, message: "Interns cannot edit ticket progress." });
+    }
+    if (Number(ticket.assignedTo) !== Number(req.user.id) && !canManageTicket(req.user, ticket)) {
+      return res.status(403).json({ success: false, message: "You cannot update this ticket's progress." });
+    }
+    if (["Resolved", "Closed"].includes(ticket.status)) {
+      return res.status(409).json({ success: false, message: "Reopen this ticket before changing its progress." });
+    }
+    if (ticket.progress !== progress) {
+      await db.sequelize.transaction(async (transaction) => {
+        const oldStatus = ticket.status;
+        const oldProgress = ticket.progress;
+        if (progress > 0 && ticket.status === "Open") {
+          ticket.status = "In-Progress";
+          await recordHistory(ticket, req.user.id, "status", oldStatus, ticket.status, "status_changed", transaction);
+        }
+        ticket.progress = progress;
+        await ticket.save({ transaction });
+        await recordHistory(ticket, req.user.id, "progress", String(oldProgress), String(progress), "updated", transaction);
+        if (db.ActivityLog) {
+          await db.ActivityLog.create({
+            actorId: req.user.id,
+            action: "ticket.progress_updated",
+            entityType: "ticket",
+            entityId: String(ticket.id),
+            metadata: { progress, oldStatus, status: ticket.status },
+          }, { transaction });
+        }
+      });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Ticket progress updated.",
+      data: { ticket: { id: ticket.id, status: ticket.status, progress: ticket.progress } },
+    });
+  } catch (error) {
+    console.error("Update Ticket Progress Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to update ticket progress." });
+  }
+}
+
+async function updateTicketDescription(req, res) {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const { description } = req.validatedBody || req.body;
+    const ticket = await getScopedTicket(req, id);
+    if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
+    if (
+      Number(ticket.assignedTo) !== Number(req.user.id) &&
+      Number(ticket.createdBy) !== Number(req.user.id) &&
+      !canManageTicket(req.user, ticket)
+    ) {
+      return res.status(403).json({ success: false, message: "You cannot edit this ticket description." });
+    }
+
+    const nextDescription = description || null;
+    if (ticket.description !== nextDescription) {
+      const oldDescription = ticket.description;
+      await db.sequelize.transaction(async (transaction) => {
+        ticket.description = nextDescription;
+        await ticket.save({ transaction });
+        await recordHistory(
+          ticket,
+          req.user.id,
+          "description",
+          oldDescription?.slice(0, 255) || null,
+          nextDescription?.slice(0, 255) || null,
+          "updated",
+          transaction,
+        );
+        if (db.ActivityLog) {
+          await db.ActivityLog.create({
+            actorId: req.user.id,
+            action: "ticket.description_updated",
+            entityType: "ticket",
+            entityId: String(ticket.id),
+            metadata: { descriptionUpdated: true },
+          }, { transaction });
+        }
+      });
+    }
+    return res.status(200).json({ success: true, data: { ticket: { id: ticket.id, description: ticket.description } } });
+  } catch (error) {
+    console.error("Update Ticket Description Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to update the ticket description." });
   }
 }
 
@@ -415,6 +513,7 @@ async function resolveLegacyTicket(req, res) {
   try {
     const oldStatus = ticket.status;
     await db.sequelize.transaction(async (transaction) => {
+      const oldProgress = ticket.progress;
       const oldDepartment = ticket.department;
       const oldAssigneeId = ticket.assignedTo;
       const oldAssignee = oldAssigneeId ? await User.findByPk(oldAssigneeId, { attributes: ["name"], transaction }) : null;
@@ -424,7 +523,11 @@ async function resolveLegacyTicket(req, res) {
       ticket.rootCause = resolutionNote || rootCause;
       ticket.resolvedBy = req.user.id;
       ticket.resolvedAt = new Date();
+      ticket.progress = 100;
       await ticket.save({ transaction });
+      if (oldProgress !== ticket.progress) {
+        await recordHistory(ticket, req.user.id, "progress", String(oldProgress), "100", "updated", transaction);
+      }
       if (oldDepartment !== department) {
         await recordHistory(ticket, req.user.id, "department", oldDepartment, department, "updated", transaction);
       }
@@ -476,6 +579,11 @@ async function reopenTicket(req, res) {
       ticket.rootCause = null;
       ticket.resolvedAt = null;
       ticket.resolvedBy = null;
+      if (ticket.progress !== 0) {
+        const oldProgress = ticket.progress;
+        ticket.progress = 0;
+        await recordHistory(ticket, req.user.id, "progress", String(oldProgress), "0", "updated", transaction);
+      }
       await ticket.save({ transaction });
       await recordHistory(ticket, req.user.id, "status", oldStatus, "Open", "status_changed", transaction);
       await recordHistory(ticket, req.user.id, "reopen_reason", null, reason.slice(0, 255), "reopened", transaction);
@@ -668,6 +776,8 @@ module.exports = {
   getTicketDetails,
   assignTicket,
   updateTicketStatus,
+  updateTicketProgress,
+  updateTicketDescription,
   resolveLegacyTicket,
   reopenTicket,
   updateDeadline,

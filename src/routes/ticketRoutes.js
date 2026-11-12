@@ -11,6 +11,8 @@ const { randomUUID } = require("node:crypto");
 const {
   attachmentParams,
   ticketStatusBody,
+  ticketProgressBody,
+  ticketDescriptionBody,
   ticketAssignmentBody,
   ticketDeadlineBody,
   ticketPriorityBody,
@@ -116,6 +118,18 @@ router.put(
   validateRequest(idParams, "params"),
   validateRequest(ticketPriorityBody),
   workflowController.updatePriority
+);
+router.put(
+  "/:id/progress",
+  validateRequest(idParams, "params"),
+  validateRequest(ticketProgressBody),
+  workflowController.updateTicketProgress
+);
+router.put(
+  "/:id/description",
+  validateRequest(idParams, "params"),
+  validateRequest(ticketDescriptionBody),
+  workflowController.updateTicketDescription
 );
 router.put(
   "/:id/status",

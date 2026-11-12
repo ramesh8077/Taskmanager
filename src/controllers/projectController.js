@@ -90,6 +90,41 @@ const createProject = async (req, res) => {
   }
 };
 
+const updateProjectDescription = async (req, res) => {
+  try {
+    const { id } = req.validatedParams || req.params;
+    const { description } = req.validatedBody || req.body;
+    const project = await Project.findOne({
+      where: isManager(req.user)
+        ? { id }
+        : { id, department: req.user.department },
+    });
+    if (!project) return res.status(404).json({ success: false, message: "Project not found." });
+    if (!isManager(req.user) && Number(project.createdBy) !== Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: "Only the project creator or a Manager can edit its description." });
+    }
+    if (project.description !== description) {
+      await db.sequelize.transaction(async (transaction) => {
+        project.description = description;
+        await project.save({ transaction });
+        if (db.ActivityLog) {
+          await db.ActivityLog.create({
+            actorId: req.user.id,
+            action: "project.description_updated",
+            entityType: "project",
+            entityId: String(project.id),
+            metadata: { descriptionUpdated: true },
+          }, { transaction });
+        }
+      });
+    }
+    return res.status(200).json({ success: true, data: { project } });
+  } catch (error) {
+    console.error("Update Project Description Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to update this project description." });
+  }
+};
+
 const getProject = async (req, res) => {
   try {
     const { where, visibleIds } = await projectAccess(req, req.validatedParams.id);
@@ -112,7 +147,7 @@ const getProject = async (req, res) => {
             {
               model: User,
               as: "assignee",
-              attributes: ["id", "name", "email"],
+              attributes: ["id", "name", "email", "department", "position"],
             },
           ],
         },
@@ -172,7 +207,7 @@ const getAllProjects = async (req, res) => {
             {
               model: User,
               as: "assignee",
-              attributes: ["id", "name", "email"], // Exclude password
+              attributes: ["id", "name", "email", "department", "position"], // Exclude password
             },
           ],
         },
@@ -199,6 +234,7 @@ const getAllProjects = async (req, res) => {
 
 module.exports = {
   createProject,
+  updateProjectDescription,
   getProject,
   getAllProjects,
 };

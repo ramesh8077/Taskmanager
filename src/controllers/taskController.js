@@ -154,6 +154,17 @@ const createTask = async (req, res) => {
         {
           taskId: newTask.id,
           changedBy: req.user.id,
+          field: "status",
+          oldValue: null,
+          newValue: "Pending",
+          action: "created",
+        },
+        { transaction }
+      );
+      await TaskHistory.create(
+        {
+          taskId: newTask.id,
+          changedBy: req.user.id,
           field: "task",
           oldValue: null,
           newValue: `Created with deadline: ${dueDate}, priority: ${taskPriority}, assigned to: ${assignee.name}`,
@@ -501,7 +512,12 @@ const updateTask = async (req, res) => {
         lock: transaction.LOCK.UPDATE,
       });
       if (!task) return { error: "NOT_FOUND" };
-      if (!canEditTask(req.user, task)) return { error: "FORBIDDEN" };
+      const descriptionOnly = Object.keys(changes).length === 1 && Object.hasOwn(changes, "description");
+      const mayEditOwnDescription = descriptionOnly && (
+        Number(task.assignedTo) === Number(req.user.id) ||
+        Number(task.createdById) === Number(req.user.id)
+      );
+      if (!canEditTask(req.user, task) && !mayEditOwnDescription) return { error: "FORBIDDEN" };
       if (Object.hasOwn(changes, "dueDate") && !canManageDeadlines(req.user)) {
         return { error: "DEADLINE_FORBIDDEN" };
       }
@@ -532,8 +548,8 @@ const updateTask = async (req, res) => {
             taskId: task.id,
             changedBy: req.user.id,
             field: change.field,
-            oldValue: change.oldValue,
-            newValue: change.newValue,
+            oldValue: change.oldValue?.slice(0, 255) || null,
+            newValue: change.newValue?.slice(0, 255) || null,
             action: change.field === "dueDate" ? "deadline_changed" : "updated",
           }, { transaction });
           if (change.field === "dueDate") {

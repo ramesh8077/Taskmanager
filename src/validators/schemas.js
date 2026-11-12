@@ -64,6 +64,10 @@ const createProjectBody = z
   })
   .strict();
 
+const projectDescriptionBody = z
+  .object({ description: shortText(1, 10000) })
+  .strict();
+
 const createTaskBody = z
   .object({
     title: shortText(3, 200),
@@ -89,6 +93,12 @@ const taskPriorityBody = z
 
 const taskProgressBody = z
   .object({ progress: z.coerce.number().int().min(0).max(100) })
+  .strict();
+const ticketProgressBody = z
+  .object({ progress: z.coerce.number().int().min(0).max(99) })
+  .strict();
+const ticketDescriptionBody = z
+  .object({ description: z.string().trim().max(10000).nullable() })
   .strict();
 const taskCommentBody = z
   .object({ comment: shortText(1, 255) })
@@ -324,10 +334,13 @@ module.exports = {
   reportingOptionsQuery,
   registrationOptions,
   createProjectBody,
+  projectDescriptionBody,
   createTaskBody,
   taskStatusBody,
   taskPriorityBody,
   taskProgressBody,
+  ticketProgressBody,
+  ticketDescriptionBody,
   taskCommentBody,
   taskAssignmentBody,
   updateTaskBody,

@@ -233,6 +233,7 @@ function normalizeWorkItem(item, view) {
     department: raw.department,
     priority: getPriorityGroup(raw.priority, view) || raw.priority,
     rawPriority: raw.priority,
+    progress: Number(raw.progress) || 0,
     deadline: task ? raw.dueDate : raw.deadline,
     status: getStatusGroup(raw.status) || raw.status,
     rawStatus: raw.status,

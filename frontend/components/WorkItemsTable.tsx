@@ -50,6 +50,7 @@ export interface WorkItem {
   department: string;
   priority: string;
   rawPriority?: string;
+  progress: number;
   deadline: string | null;
   status: string;
   rawStatus: string;
@@ -743,6 +744,7 @@ export default function WorkItemsTable({
 
       {selectedItem && (
         <WorkItemDetails
+          key={`${selectedItem.type}-${selectedItem.id}`}
           item={selectedItem}
           assignableUsers={result?.filterOptions.assignees || []}
           onClose={() => setSelectedItem(null)}

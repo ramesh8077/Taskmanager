@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import API from "@/lib/axios";
 import { useAuth } from "@/context/AuthContext";
 import { can } from "@/lib/rbac";
+import { TaskProgressControl } from "@/components/TaskProgress";
 
 interface Person {
   id: number;
@@ -24,6 +25,7 @@ interface WorkItem {
   department: string;
   priority: string;
   rawPriority?: string;
+  progress: number;
   deadline: string | null;
   status: string;
   rawStatus: string;
@@ -111,10 +113,13 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
   const [comments, setComments] = useState<CommentEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [description, setDescription] = useState(item.description || "");
   const [comment, setComment] = useState("");
   const [deadline, setDeadline] = useState("");
   const [reason, setReason] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
+  const [pendingStatus, setPendingStatus] = useState<"Resolved" | "Open" | null>(null);
+  const [statusReason, setStatusReason] = useState("");
   const [error, setError] = useState("");
 
   const isManager = user?.position === "MANAGER";
@@ -136,6 +141,12 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
   const canEditDeadline = !isIntern && canManageTeamItem &&
     ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(user?.position || "");
   const canEditPriority = canEditDeadline;
+  const canEditDescription = assignedToMe || canManageTeamItem || item.createdBy?.id === user?.id;
+  const canReopenTicket = item.type === "ticket" && (isManager || item.createdBy?.id === user?.id) && ["Resolved", "Closed"].includes(item.rawStatus);
+  const canChangeStatus = !isIntern && (assignedToMe || canManageTeamItem || canReopenTicket);
+  const canEditProgress = !isIntern && (assignedToMe || canManageTeamItem) &&
+    !(item.type === "task" && ["Completed", "DONE"].includes(item.rawStatus)) &&
+    !(item.type === "ticket" && ["Resolved", "Closed"].includes(item.rawStatus));
   const canClose = item.type === "task"
     ? !["Completed", "DONE"].includes(item.rawStatus) && (isIntern ? assignedToMe : canManageTeamItem || assignedToMe)
     : item.rawStatus !== "Closed" && (isIntern ? assignedToMe : canManageTeamItem || assignedToMe || item.createdBy?.id === user?.id);
@@ -196,17 +207,79 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
     };
   }, [item.id, item.type]);
 
-  async function perform(action: () => Promise<unknown>) {
+  async function perform(action: () => Promise<unknown>): Promise<boolean> {
     setBusy(true);
     setError("");
     try {
       await action();
       window.location.reload();
+      return true;
     } catch (requestError) {
       setError(getErrorMessage(requestError));
       setBusy(false);
+      return false;
     }
   }
+
+  function changeStatus(status: string) {
+    if (status === item.rawStatus) return;
+    setPendingStatus(null);
+    if (item.type === "task") {
+      const body = status === "Completed"
+        ? { status, completedBy: user?.name || "Assigned user", completedAt: new Date().toISOString().slice(0, 10) }
+        : { status };
+      void perform(() => API.put(`/tasks/${item.id}/status`, body));
+      return;
+    }
+    if (status === "Resolved") {
+      setPendingStatus("Resolved");
+      setStatusReason("");
+      setError("");
+      return;
+    }
+    if (status === "Open") {
+      setPendingStatus("Open");
+      setStatusReason("");
+      setError("");
+      return;
+    }
+    void perform(() => API.put(`/tickets/${item.id}/status`, { status }));
+  }
+
+  function applyPendingStatus() {
+    if (!pendingStatus || !statusReason.trim()) {
+      setError(pendingStatus === "Resolved" ? "Add a resolution note before resolving this ticket." : "Add a reason before reopening this ticket.");
+      return;
+    }
+    if (pendingStatus === "Resolved") {
+      void perform(() => API.put(`/tickets/${item.id}/status`, { status: "Resolved", resolutionNote: statusReason.trim() }));
+    } else {
+      void perform(() => API.put(`/tickets/${item.id}/reopen`, { reason: statusReason.trim() }));
+    }
+  }
+
+  const statusOptions = item.type === "task"
+    ? ["Pending", "In-Progress", "Completed"]
+    : item.rawStatus === "Open"
+      ? ["Open", "In-Progress", "Resolved"]
+      : item.rawStatus === "In-Progress"
+        ? ["In-Progress", "Resolved"]
+        : [item.rawStatus, ...(item.rawStatus === "Resolved" ? ["Closed"] : []), ...(canReopenTicket ? ["Open"] : [])];
+
+  const statusTimeline = useMemo(() => {
+    const entries = history.filter((entry) => entry.field === "status");
+    const timeline = entries.map((entry) => ({
+      id: entry.id,
+      status: (entry.newValue || "").startsWith("Completed by:") ? "Completed" : entry.newValue || "Unknown",
+      createdAt: entry.createdAt,
+      user: entry.changedByUser?.name || entry.user?.name || "Team member",
+    }));
+    if (!entries.some((entry) => !entry.oldValue)) {
+      const initialStatus = entries[0]?.oldValue || (entries.length ? "" : item.type === "task" ? "Pending" : "Open");
+      if (initialStatus) timeline.unshift({ id: `initial-${item.id}`, status: initialStatus, createdAt: item.createdAt, user: "Item created" });
+    }
+    return timeline;
+  }, [history, item]);
 
   function updatePriority(value: string) {
     const priority = item.type === "task"
@@ -269,6 +342,15 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
     ));
   }
 
+  function saveDescription() {
+    const value = description.trim();
+    if (value === (item.description || "")) return;
+    void perform(() => API.put(
+      item.type === "task" ? `/tasks/${item.id}` : `/tickets/${item.id}/description`,
+      { description: value || null },
+    ));
+  }
+
   return (
     <div className="work-items-dialog-backdrop" role="presentation" onClick={onClose}>
       <section
@@ -292,11 +374,62 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
           <div><dt>Priority</dt><dd>{item.priority}</dd></div>
           <div><dt>Deadline</dt><dd>{shortDate(item.deadline)}</dd></div>
           <div><dt>Status</dt><dd>{item.rawStatus}</dd></div>
+          <div className="work-item-detail-progress"><dt>Work completed</dt><dd><TaskProgressControl
+            progress={item.progress || 0}
+            status={item.type === "task"
+              ? item.rawStatus === "Completed" || item.rawStatus === "DONE" ? "Completed" : item.rawStatus
+              : ["Resolved", "Closed"].includes(item.rawStatus) ? "Completed" : item.rawStatus}
+            disabled={!canEditProgress || busy}
+            label={`${item.type === "task" ? "Task" : "Ticket"} progress`}
+            onSave={(progress) => perform(() => API.put(
+              item.type === "task" ? `/tasks/${item.id}/progress` : `/tickets/${item.id}/progress`,
+              { progress },
+            ))}
+          /></dd></div>
         </dl>
+
+        <section className="work-item-detail-description">
+          <h3>Description</h3>
+          <textarea
+            aria-label={`${item.type === "task" ? "Task" : "Ticket"} description`}
+            maxLength={10000}
+            rows={5}
+            value={description}
+            disabled={!canEditDescription || busy}
+            onChange={(event) => setDescription(event.target.value)}
+            placeholder="Add a description…"
+          />
+          {canEditDescription && <button
+            type="button"
+            className="work-item-create-button"
+            disabled={busy || description.trim() === (item.description || "")}
+            onClick={saveDescription}
+          >Save description</button>}
+        </section>
 
         {error && <p className="work-item-dialog-error" role="alert">{error}</p>}
 
         <div className="work-item-detail-actions">
+          {canChangeStatus && (
+            <label>
+              Update status
+              <select value={item.rawStatus} disabled={busy} onChange={(event) => changeStatus(event.target.value)}>
+                {statusOptions.map((status) => <option key={status} value={status}>{status.replaceAll("-", " ")}</option>)}
+              </select>
+            </label>
+          )}
+          {pendingStatus && (
+            <div className="work-item-detail-deadline">
+              <label>
+                {pendingStatus === "Resolved" ? "Resolution note" : "Reopen reason"}
+                <input type="text" maxLength={10000} value={statusReason} disabled={busy} onChange={(event) => setStatusReason(event.target.value)} />
+              </label>
+              <button type="button" className="work-item-create-button is-primary" disabled={busy || !statusReason.trim()} onClick={applyPendingStatus}>
+                {pendingStatus === "Resolved" ? "Resolve ticket" : "Reopen ticket"}
+              </button>
+              <button type="button" className="work-item-dialog-cancel" disabled={busy} onClick={() => setPendingStatus(null)}>Cancel</button>
+            </div>
+          )}
           {canAssign && (
             <label>
               Reassign
@@ -362,6 +495,16 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
             </article>
           ))}
           {!loading && comments.length === 0 && <p className="work-item-detail-muted">No comments yet.</p>}
+        </div>
+
+        <div className="work-item-detail-history work-item-status-timeline">
+          <h3>Status timeline</h3>
+          {loading ? <p className="work-item-detail-muted">Loading status dates…</p> : statusTimeline.length ? statusTimeline.map((entry) => (
+            <article key={entry.id}>
+              <p><strong>{entry.status.replaceAll("-", " ")}</strong> status</p>
+              <small>{new Date(entry.createdAt).toLocaleString()} · {entry.user}</small>
+            </article>
+          )) : <p className="work-item-detail-muted">No status changes have been recorded yet.</p>}
         </div>
 
         <div className="work-item-detail-history">

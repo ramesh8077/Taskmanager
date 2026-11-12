@@ -11,7 +11,7 @@ const router = express.Router();
 const projectController = require("../controllers/projectController");
 const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
 const { validateRequest } = require("../middlewares/validate");
-const { createProjectBody, idParams } = require("../validators/schemas");
+const { createProjectBody, projectDescriptionBody, idParams } = require("../validators/schemas");
 
 // ─── Project Routes ─────────────────────────────────────────────────────────
 
@@ -26,6 +26,13 @@ router.get(
   "/",
   verifyToken,
   projectController.getAllProjects
+);
+router.put(
+  "/:id/description",
+  verifyToken,
+  validateRequest(idParams, "params"),
+  validateRequest(projectDescriptionBody),
+  projectController.updateProjectDescription
 );
 router.get(
   "/:id",

@@ -11,8 +11,11 @@ const {
   deadlineExtensionQuery,
   ticketQuery,
   ticketStatusBody,
+  ticketProgressBody,
   ticketAssignmentBody,
   createTicketBody,
+  ticketDescriptionBody,
+  projectDescriptionBody,
 } = require("../validators/schemas");
 
 test("public registration rejects client-supplied roles", () => {
@@ -99,6 +102,21 @@ test("ticket workflow requires resolution notes and validates assignee IDs", () 
   assert.equal(ticketStatusBody.safeParse({ status: "Closed" }).success, true);
   assert.equal(ticketAssignmentBody.safeParse({ assignedTo: null }).success, true);
   assert.equal(ticketAssignmentBody.safeParse({ assignedTo: 0 }).success, false);
+});
+
+test("ticket progress accepts work percentages below completion", () => {
+  assert.equal(ticketProgressBody.safeParse({ progress: 0 }).success, true);
+  assert.equal(ticketProgressBody.safeParse({ progress: 99 }).success, true);
+  assert.equal(ticketProgressBody.safeParse({ progress: 100 }).success, false);
+  assert.equal(ticketProgressBody.safeParse({ progress: 24.5 }).success, false);
+});
+
+test("project and ticket description updates validate editable text", () => {
+  assert.equal(projectDescriptionBody.safeParse({ description: "Revised project scope" }).success, true);
+  assert.equal(projectDescriptionBody.safeParse({ description: "   " }).success, false);
+  assert.equal(ticketDescriptionBody.safeParse({ description: "Revised ticket details" }).success, true);
+  assert.equal(ticketDescriptionBody.safeParse({ description: null }).success, true);
+  assert.equal(ticketDescriptionBody.safeParse({ description: "x".repeat(10001) }).success, false);
 });
 
 test("ticket creation validates optional deadline and project/task links", () => {
