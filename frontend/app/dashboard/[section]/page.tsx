@@ -9,6 +9,10 @@ import WorkItemCreateActions from "@/components/WorkItemCreateActions";
 import DeadlineRequests from "@/components/DeadlineRequests";
 import WorkItemsTable from "@/components/WorkItemsTable";
 import DashboardDirectory from "@/components/DashboardDirectory";
+import TeamDirectory from "@/components/TeamDirectory";
+import WorkspaceReports from "@/components/WorkspaceReports";
+import WorkspaceSettings from "@/components/WorkspaceSettings";
+import WorkspaceProfile from "@/components/WorkspaceProfile";
 
 export default function DashboardSectionPage() {
   const { user } = useAuth();
@@ -36,6 +40,24 @@ export default function DashboardSectionPage() {
             </>
           ) : item.href === "/dashboard/teams" || item.href === "/dashboard/members" ? (
             <DashboardDirectory mode={item.href.endsWith("teams") ? "teams" : "members"} />
+          ) : item.href === "/dashboard/my-tasks" || item.href === "/dashboard/my-tickets" ? (
+            <>
+              <div className="dashboard-page-header"><div><h1 className="dashboard-page-title">{item.href.endsWith("my-tasks") ? "My Tasks" : "My Tickets"}</h1><p className="dashboard-page-subtitle">{user?.name} · Items assigned to your account</p></div></div>
+              <WorkItemsTable fixedView={item.href.endsWith("my-tasks") ? "tasks" : "tickets"} initialAssignedTo={user?.id} />
+            </>
+          ) : item.href === "/dashboard/team-tasks" || item.href === "/dashboard/team-tickets" ? (
+            <>
+              <div className="dashboard-page-header"><div><h1 className="dashboard-page-title">{item.label}</h1><p className="dashboard-page-subtitle">Work items visible in your team scope.</p></div></div>
+              <WorkItemsTable fixedView={item.href.endsWith("team-tasks") ? "tasks" : "tickets"} />
+            </>
+          ) : item.href === "/dashboard/my-team" ? (
+            <TeamDirectory />
+          ) : item.href === "/dashboard/reports" ? (
+            <WorkspaceReports />
+          ) : item.href === "/dashboard/settings" ? (
+            <WorkspaceSettings />
+          ) : item.href === "/dashboard/profile" ? (
+            <WorkspaceProfile />
           ) : item.href === "/dashboard/create-task" ? (
             <>
               <h1 className="dashboard-page-title">Create task</h1>

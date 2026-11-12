@@ -235,8 +235,10 @@ function errorText(error: unknown) {
 
 export default function WorkItemsTable({
   fixedView,
+  initialAssignedTo,
 }: {
   fixedView?: View;
+  initialAssignedTo?: number;
 }) {
   const { user } = useAuth();
   const [filters, setFilters] = useState(initialFilters);
@@ -257,6 +259,7 @@ export default function WorkItemsTable({
     const onPopState = () => {
       const restoredFilters = readFilters();
       if (fixedView) restoredFilters.view = fixedView;
+      if (initialAssignedTo) restoredFilters.assignedTo = initialAssignedTo;
       filtersRef.current = restoredFilters;
       setFilters(restoredFilters);
     };
@@ -267,6 +270,7 @@ export default function WorkItemsTable({
         restored.view = fixedView;
         restored.status = "ALL";
       }
+      if (initialAssignedTo) restored.assignedTo = initialAssignedTo;
       filtersRef.current = restored;
       setFilters(restored);
       writeFilters(restored, true);
@@ -276,7 +280,7 @@ export default function WorkItemsTable({
       window.clearTimeout(timer);
       window.removeEventListener("popstate", onPopState);
     };
-  }, [fixedView]);
+  }, [fixedView, initialAssignedTo]);
 
   useEffect(() => {
     if (!filtersReady) return;
@@ -341,8 +345,8 @@ export default function WorkItemsTable({
     setAssigneeSearch("");
     setCreatorSearch("");
     updateFilters({
-      status: "PENDING",
-      assignedTo: undefined,
+      status: fixedView ? "ALL" : "PENDING",
+      assignedTo: initialAssignedTo,
       assigneePosition: [],
       createdBy: undefined,
       department: [],
@@ -358,7 +362,7 @@ export default function WorkItemsTable({
       sortBy: "deadline",
       sortOrder: "ASC",
     });
-  }, [updateFilters]);
+  }, [fixedView, initialAssignedTo, updateFilters]);
 
   const removeChip = useCallback((key: keyof Filters, value?: string) => {
     if (key === "assigneePosition" || key === "department" || key === "priority") {
@@ -390,7 +394,7 @@ export default function WorkItemsTable({
   const chips = useMemo(() => {
     if (!result) return [];
     const items: Array<{ key: keyof Filters; label: string; value?: string }> = [];
-    if (filters.assignedTo) {
+    if (filters.assignedTo && !initialAssignedTo) {
       const person = result.filterOptions.assignees.find((option) => option.id === filters.assignedTo);
       items.push({ key: "assignedTo", label: `Assigned to: ${person?.name || filters.assignedTo}` });
     }
@@ -418,7 +422,7 @@ export default function WorkItemsTable({
     if (filters.overdue) items.push({ key: "overdue", label: "Overdue only" });
     if (filters.search) items.push({ key: "search", label: `Search: ${filters.search}` });
     return items;
-  }, [filters, result]);
+  }, [filters, initialAssignedTo, result]);
 
   const toggleArrayFilter = (key: "assigneePosition" | "department" | "priority", value: string) => {
     const current = filters[key] as string[];
@@ -484,7 +488,7 @@ export default function WorkItemsTable({
         ))}
       </div>
 
-      {showManagementFilters && (
+        {showManagementFilters && !initialAssignedTo && (
         <div className="work-items-filters">
           <label className="work-items-field">
             Assigned to

@@ -46,6 +46,7 @@ router.get(
   verifyToken,
   userController.getDirectory
 );
+router.get("/team", verifyToken, userController.getTeamDirectory);
 router.get(
   "/members",
   verifyToken,

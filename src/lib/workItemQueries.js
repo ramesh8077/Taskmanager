@@ -202,9 +202,10 @@ function getStatusGroup(status) {
 }
 
 function getPriorityGroup(priority, view) {
+  const type = view === "tasks" || view === "task" ? "task" : "ticket";
   return Object.entries(PRIORITY_GROUPS).find(([, values]) =>
-    values[view].includes(priority),
-  )?.[0];
+    values[type].includes(priority),
+  )?.[0] || null;
 }
 
 function normalizeWorkItem(item, view) {

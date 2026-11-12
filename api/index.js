@@ -28,6 +28,8 @@ const projectRoutes = require("../src/routes/projectRoutes");
 const taskRoutes = require("../src/routes/taskRoutes");
 const ticketRoutes = require("../src/routes/ticketRoutes");
 const workItemsRoutes = require("../src/routes/workItemsRoutes");
+const reportRoutes = require("../src/routes/reportRoutes");
+const settingsRoutes = require("../src/routes/settingsRoutes");
 
 // ─── Import Database ────────────────────────────────────────────────────────
 
@@ -82,6 +84,7 @@ function ensureDB() {
           "202611020001-department-hierarchy.js",
           "202611020002-deadline-extension-requests.js",
           "202611030001-work-items-dashboard-indexes.js",
+          "202611120001-employee-task-create-permission.js",
         ];
         if (
           requiredMigrations.some(
@@ -135,6 +138,8 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/work-items", workItemsRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/settings", settingsRoutes);
 
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 

@@ -31,6 +31,8 @@ const projectRoutes = require("./src/routes/projectRoutes");
 const taskRoutes = require("./src/routes/taskRoutes");
 const ticketRoutes = require("./src/routes/ticketRoutes");
 const workItemsRoutes = require("./src/routes/workItemsRoutes");
+const reportRoutes = require("./src/routes/reportRoutes");
+const settingsRoutes = require("./src/routes/settingsRoutes");
 
 // ─── Initialize Express App ─────────────────────────────────────────────────
 
@@ -83,6 +85,8 @@ app.use("/api/projects", projectRoutes);
 app.use("/api/tasks", taskRoutes);
 app.use("/api/tickets", ticketRoutes);
 app.use("/api/work-items", workItemsRoutes);
+app.use("/api/reports", reportRoutes);
+app.use("/api/settings", settingsRoutes);
 app.use((error, req, res, next) => {
   console.error("Request middleware failed:", error);
   if (res.headersSent) return next(error);

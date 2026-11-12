@@ -146,6 +146,76 @@ const getDirectory = async (req, res) => {
   }
 };
 
+const getTeamDirectory = async (req, res) => {
+  try {
+    if (!can(req.user, "user:view:team")) {
+      return res.status(403).json({ success: false, message: "You do not have permission to view this team." });
+    }
+    const memberIds = await visibleUserIds(User, req.user, { includeSelf: false });
+    const members = memberIds.length
+      ? await User.findAll({
+        where: { id: { [Op.in]: memberIds }, status: "ACTIVE", isActive: true },
+        attributes: ["id", "name", "email", "department", "position", "employeeId", "reportsToId", "lastActivityAt"],
+        include: [{ model: User, as: "reportsTo", attributes: ["id", "name"], required: false }],
+        order: [["name", "ASC"]],
+      })
+      : [];
+    const ids = members.map((member) => Number(member.id));
+    const [taskGroups, ticketGroups] = ids.length
+      ? await Promise.all([
+        Task.findAll({
+          attributes: ["assignedTo", "status", [db.sequelize.fn("COUNT", db.sequelize.col("id")), "count"]],
+          where: { assignedTo: { [Op.in]: ids } },
+          group: ["assignedTo", "status"],
+          raw: true,
+        }),
+        db.Ticket.findAll({
+          attributes: ["assignedTo", "status", [db.sequelize.fn("COUNT", db.sequelize.col("id")), "count"]],
+          where: { assignedTo: { [Op.in]: ids } },
+          group: ["assignedTo", "status"],
+          raw: true,
+        }),
+      ])
+      : [[], []];
+    const countsByMember = new Map(ids.map((id) => [id, { tasks: 0, openTasks: 0, tickets: 0, openTickets: 0 }]));
+    for (const row of taskGroups) {
+      const counts = countsByMember.get(Number(row.assignedTo));
+      if (!counts) continue;
+      const count = Number(row.count);
+      counts.tasks += count;
+      if (!['Completed', 'DONE'].includes(row.status)) counts.openTasks += count;
+    }
+    for (const row of ticketGroups) {
+      const counts = countsByMember.get(Number(row.assignedTo));
+      if (!counts) continue;
+      const count = Number(row.count);
+      counts.tickets += count;
+      if (!['Resolved', 'Closed', 'DONE'].includes(row.status)) counts.openTickets += count;
+    }
+    const data = members.map((member) => ({
+      ...member.get({ plain: true }),
+      ...(countsByMember.get(Number(member.id)) || { tasks: 0, openTasks: 0, tickets: 0, openTickets: 0 }),
+    }));
+    return res.status(200).json({
+      success: true,
+      message: "Team directory fetched successfully.",
+      data: {
+        members: data,
+        summary: {
+          members: data.length,
+          tasks: data.reduce((total, member) => total + member.tasks, 0),
+          openTasks: data.reduce((total, member) => total + member.openTasks, 0),
+          tickets: data.reduce((total, member) => total + member.tickets, 0),
+          openTickets: data.reduce((total, member) => total + member.openTickets, 0),
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get Scoped Team Directory Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to load your team." });
+  }
+};
+
 const searchTeamMembers = async (req, res) => {
   try {
     const { q = "" } = req.validatedQuery || req.query;
@@ -534,6 +604,7 @@ const updateMember = async (req, res) => {
 module.exports = {
   getMembers,
   getDirectory,
+  getTeamDirectory,
   searchTeamMembers,
   getMemberOverview,
   getMemberDetail,
