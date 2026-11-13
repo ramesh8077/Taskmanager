@@ -86,7 +86,7 @@ interface ApiResponse {
 
 const initialFilters: Filters = {
   view: "tasks",
-  status: "PENDING",
+  status: "ALL",
   assigneePosition: [],
   department: [],
   priority: [],

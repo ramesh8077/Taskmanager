@@ -16,6 +16,9 @@ module.exports = (sequelize) => {
         type: DataTypes.TEXT,
         allowNull: false,
       },
+      imageData: { type: DataTypes.BLOB("medium"), allowNull: true },
+      imageMimeType: { type: DataTypes.STRING(50), allowNull: true },
+      imageFileName: { type: DataTypes.STRING(255), allowNull: true },
       ticketId: {
         type: DataTypes.INTEGER,
         allowNull: false,

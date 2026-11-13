@@ -49,6 +49,9 @@ module.exports = (sequelize) => {
         allowNull: true,
         comment: "The new value of the field.",
       },
+      imageData: { type: DataTypes.BLOB("medium"), allowNull: true },
+      imageMimeType: { type: DataTypes.STRING(50), allowNull: true },
+      imageFileName: { type: DataTypes.STRING(255), allowNull: true },
       action: {
         type: DataTypes.ENUM("created", "status_changed", "priority_changed", "reassigned", "updated"),
         allowNull: false,

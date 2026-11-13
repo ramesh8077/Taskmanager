@@ -27,6 +27,7 @@
 const { Op } = require("sequelize");
 const db = require("../models");
 const { can } = require("../lib/rbac");
+const { hasValidImageSignature } = require("../lib/commentImageUpload");
 
 const Task = db.Task;
 const Project = db.Project;
@@ -701,9 +702,13 @@ const updateStatus = async (req, res) => {
     }
     if (
       req.user.position === "INTERN" &&
-      (Number(task.assignedTo) !== Number(req.user.id) || status !== "Completed")
+      (
+        Number(task.assignedTo) !== Number(req.user.id) ||
+        !["In-Progress", "Completed"].includes(status) ||
+        (task.status === "Completed" && status !== "Completed")
+      )
     ) {
-      return res.status(403).json({ success: false, message: "Interns may only complete tasks assigned to them." });
+      return res.status(403).json({ success: false, message: "Interns may move their assigned tasks into progress or complete them." });
     }
 
     // ── Log status change in history ──────────────────────────────────────
@@ -795,9 +800,6 @@ const updateProgress = async (req, res) => {
     if (!canUpdateProgress(req.user, task)) {
       return res.status(403).json({ success: false, message: "You cannot update this task's progress." });
     }
-    if (req.user.position === "INTERN") {
-      return res.status(403).json({ success: false, message: "Interns may only close tasks assigned to them." });
-    }
     if (task.status === "Completed" && progress !== 100) {
       return res.status(409).json({
         success: false,
@@ -870,18 +872,49 @@ const addTaskComment = async (req, res) => {
     if (!task) {
       return res.status(404).json({ success: false, message: "Task not found." });
     }
-    const history = await TaskHistory.create({
+    if (req.file && !hasValidImageSignature(req.file)) {
+      return res.status(400).json({ success: false, message: "The uploaded image contents do not match its file type." });
+    }
+    const history = await db.sequelize.transaction(async (transaction) => TaskHistory.create({
       taskId: task.id,
       changedBy: req.user.id,
       field: "comment",
       oldValue: null,
       newValue: comment,
+      imageData: req.file?.buffer || null,
+      imageMimeType: req.file?.mimetype || null,
+      imageFileName: req.file?.originalname?.split(/[\\/]/).pop()?.replace(/[\r\n\0]/g, "_").slice(0, 255) || null,
       action: "updated",
+    }, { transaction }));
+    return res.status(201).json({
+      success: true,
+      data: { comment: { id: history.id, comment: history.newValue, imageMimeType: history.imageMimeType, imageFileName: history.imageFileName, createdAt: history.createdAt } },
     });
-    return res.status(201).json({ success: true, data: { comment: history } });
   } catch (error) {
     console.error("Add Task Comment Error:", error);
     return res.status(500).json({ success: false, message: "Unable to add this task comment." });
+  }
+};
+
+const getTaskCommentImage = async (req, res) => {
+  try {
+    const { id, commentId } = req.validatedParams || req.params;
+    const task = await findVisibleTask(req.user, id);
+    if (!task) return res.status(404).json({ success: false, message: "Task not found." });
+    const comment = await TaskHistory.findOne({
+      where: { id: commentId, taskId: task.id, field: "comment" },
+      attributes: ["imageData", "imageMimeType"],
+    });
+    if (!comment?.imageData || !comment.imageMimeType) {
+      return res.status(404).json({ success: false, message: "Comment image not found." });
+    }
+    res.setHeader("Content-Type", comment.imageMimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(comment.imageData);
+  } catch (error) {
+    console.error("Get Task Comment Image Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to load this comment image." });
   }
 };
 
@@ -1068,6 +1101,7 @@ const getTaskHistory = async (req, res) => {
     // ── Fetch history entries ─────────────────────────────────────────────
     const history = await TaskHistory.findAll({
       where: { taskId: id },
+      attributes: ["id", "taskId", "changedBy", "field", "oldValue", "newValue", "action", "imageMimeType", "imageFileName", "createdAt"],
       include: [
         {
           model: User,
@@ -1141,6 +1175,7 @@ module.exports = {
   updatePriority,
   updateProgress,
   addTaskComment,
+  getTaskCommentImage,
   assignTask,
   getTaskHistory,
 };

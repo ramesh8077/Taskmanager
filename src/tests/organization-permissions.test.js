@@ -57,6 +57,9 @@ test("deadline edits require higher rank; assignees can still update their progr
   assert.equal(canEditDeadline(developmentEmployee, task), false);
   assert.equal(canUpdateProgress(developmentEmployee, task), true);
   assert.equal(canUpdateProgress(developmentLead, task), true);
+  const intern = { id: 5, department: "Development", position: "INTERN" };
+  assert.equal(canUpdateProgress(intern, { assignedTo: intern.id, assignee: intern }), true);
+  assert.equal(canUpdateProgress(intern, task), false);
 });
 
 test("task deletion requires Manager or creator authority over the assignee", () => {

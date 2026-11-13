@@ -8,8 +8,10 @@ const multer = require("multer");
 const fs = require("node:fs");
 const path = require("node:path");
 const { randomUUID } = require("node:crypto");
+const { receiveCommentImage } = require("../lib/commentImageUpload");
 const {
   attachmentParams,
+  commentImageParams,
   ticketStatusBody,
   ticketProgressBody,
   ticketDescriptionBody,
@@ -169,8 +171,14 @@ router.put(
 router.post(
   "/:id/comments",
   validateRequest(idParams, "params"),
+  receiveCommentImage,
   validateRequest(createTicketCommentBody),
   workflowController.addComment
+);
+router.get(
+  "/:id/comments/:commentId/image",
+  validateRequest(commentImageParams, "params"),
+  workflowController.getTicketCommentImage
 );
 
 module.exports = router;

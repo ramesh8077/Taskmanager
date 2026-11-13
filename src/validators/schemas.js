@@ -219,6 +219,7 @@ const updateTaskBody = z.object({
 const idParams = z.object({ id: positiveId }).strict();
 const deadlineExtensionRequestParams = z.object({ requestId: positiveId }).strict();
 const attachmentParams = z.object({ id: positiveId, attachmentId: positiveId }).strict();
+const commentImageParams = z.object({ id: positiveId, commentId: positiveId }).strict();
 
 const createTicketBody = z
   .object({
@@ -295,7 +296,7 @@ const ticketQuery = z
 const workItemListQuery = z
   .object({
     view: z.enum(["tasks", "tickets"]).default("tasks"),
-    status: z.enum(["PENDING", "IN_PROGRESS", "IN_REVIEW", "DONE", "BLOCKED", "ALL"]).default("PENDING"),
+    status: z.enum(["PENDING", "IN_PROGRESS", "IN_REVIEW", "DONE", "BLOCKED", "ALL"]).default("ALL"),
     assignedTo: positiveId.optional(),
     assigneePosition: z.string().max(100).transform((value) => value.split(",").map((item) => item.trim()).filter(Boolean))
       .pipe(z.array(z.enum(["MANAGER", "SUB_MANAGER", "TEAM_LEAD", "EMPLOYEE", "INTERN"])).max(5))
@@ -354,6 +355,7 @@ module.exports = {
   deadlineExtensionQuery,
   idParams,
   attachmentParams,
+  commentImageParams,
   createTicketBody,
   resolveTicketBody,
   createTicketCommentBody,

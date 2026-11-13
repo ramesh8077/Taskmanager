@@ -39,6 +39,8 @@ interface HistoryEntry {
   reason?: string | null;
   action: string;
   createdAt: string;
+  imageMimeType?: string | null;
+  imageFileName?: string | null;
   changedByUser?: { name: string };
   user?: { name: string };
 }
@@ -47,6 +49,8 @@ interface CommentEntry {
   id: number | string;
   comment: string;
   createdAt: string;
+  imageMimeType?: string | null;
+  imageFileName?: string | null;
   user?: { name: string };
 }
 
@@ -115,6 +119,8 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
   const [busy, setBusy] = useState(false);
   const [description, setDescription] = useState(item.description || "");
   const [comment, setComment] = useState("");
+  const [commentImage, setCommentImage] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [deadline, setDeadline] = useState("");
   const [reason, setReason] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
@@ -143,8 +149,11 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
   const canEditPriority = canEditDeadline;
   const canEditDescription = assignedToMe || canManageTeamItem || item.createdBy?.id === user?.id;
   const canReopenTicket = item.type === "ticket" && (isManager || item.createdBy?.id === user?.id) && ["Resolved", "Closed"].includes(item.rawStatus);
-  const canChangeStatus = !isIntern && (assignedToMe || canManageTeamItem || canReopenTicket);
-  const canEditProgress = !isIntern && (assignedToMe || canManageTeamItem) &&
+  const canChangeStatus = isIntern
+    ? item.type === "task" && assignedToMe
+    : assignedToMe || canManageTeamItem || canReopenTicket;
+  const canEditProgress = !(isIntern && item.type === "ticket") &&
+    (assignedToMe || canManageTeamItem) &&
     !(item.type === "task" && ["Completed", "DONE"].includes(item.rawStatus)) &&
     !(item.type === "ticket" && ["Resolved", "Closed"].includes(item.rawStatus));
   const canClose = item.type === "task"
@@ -152,6 +161,10 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
     : item.rawStatus !== "Closed" && (isIntern ? assignedToMe : canManageTeamItem || assignedToMe || item.createdBy?.id === user?.id);
 
   const priorityValue = useMemo(() => item.rawPriority || item.priority, [item]);
+
+  useEffect(() => () => {
+    if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+  }, [imagePreviewUrl]);
 
   useEffect(() => {
     let active = true;
@@ -170,6 +183,8 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
                   id: entry.id,
                   comment: entry.newValue || "",
                   createdAt: entry.createdAt,
+                  imageMimeType: entry.imageMimeType,
+                  imageFileName: entry.imageFileName,
                   user: { name: entry.changedByUser?.name || "Team member" },
                 })),
             );
@@ -259,7 +274,9 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
   }
 
   const statusOptions = item.type === "task"
-    ? ["Pending", "In-Progress", "Completed"]
+    ? isIntern
+      ? item.rawStatus === "Pending" ? ["Pending", "In-Progress"] : item.rawStatus === "In-Progress" ? ["In-Progress", "Completed"] : [item.rawStatus]
+      : ["Pending", "In-Progress", "Completed"]
     : item.rawStatus === "Open"
       ? ["Open", "In-Progress", "Resolved"]
       : item.rawStatus === "In-Progress"
@@ -335,11 +352,28 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
 
   function addComment() {
     const value = comment.trim();
-    if (!value) return;
+    if (!value || (commentImage && !["image/jpeg", "image/png", "image/gif", "image/webp"].includes(commentImage.type))) return;
+    const form = new FormData();
+    form.append("comment", value);
+    if (commentImage) form.append("image", commentImage);
     void perform(() => API.post(
       item.type === "task" ? `/tasks/${item.id}/comments` : `/tickets/${item.id}/comments`,
-      { comment: value },
+      form,
     ));
+  }
+
+  async function previewCommentImage(commentId: number | string) {
+    try {
+      const response = await API.get(
+        item.type === "task"
+          ? `/tasks/${item.id}/comments/${commentId}/image`
+          : `/tickets/${item.id}/comments/${commentId}/image`,
+        { responseType: "blob" },
+      );
+      setImagePreviewUrl(URL.createObjectURL(response.data));
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
   }
 
   function saveDescription() {
@@ -486,16 +520,34 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
           <h3>Comments</h3>
           <form onSubmit={(event) => { event.preventDefault(); addComment(); }}>
             <input aria-label="Add a comment" value={comment} maxLength={255} disabled={busy} onChange={(event) => setComment(event.target.value)} placeholder="Write a comment…" />
+            <label className="work-item-comment-image-pick" title="Attach an image">
+              Image
+              <input aria-label="Attach comment image" className="sr-only" type="file" accept="image/jpeg,image/png,image/gif,image/webp" disabled={busy} onChange={(event) => {
+                const file = event.target.files?.[0] || null;
+                if (file && file.size > 5 * 1024 * 1024) {
+                  setError("Comment images must be 5 MB or smaller.");
+                  setCommentImage(null);
+                  event.target.value = "";
+                  return;
+                }
+                setError("");
+                setCommentImage(file);
+              }} />
+            </label>
             <button type="submit" className="work-item-create-button" disabled={busy || !comment.trim()}>Add</button>
           </form>
+          {commentImage && <div className="work-item-comment-image-selected"><span>{commentImage.name}</span><button type="button" disabled={busy} onClick={() => setCommentImage(null)}>Remove image</button></div>}
           {comments.map((entry) => (
             <article key={entry.id}>
               <p>{entry.comment}</p>
+              {entry.imageMimeType && <button type="button" className="work-item-comment-image-link" onClick={() => void previewCommentImage(entry.id)}>{entry.imageFileName || "View attached image"}</button>}
               <small>{entry.user?.name || "Team member"} · {new Date(entry.createdAt).toLocaleString()}</small>
             </article>
           ))}
           {!loading && comments.length === 0 && <p className="work-item-detail-muted">No comments yet.</p>}
         </div>
+
+        {imagePreviewUrl && <div className="work-item-image-preview-backdrop" role="presentation" onClick={() => { URL.revokeObjectURL(imagePreviewUrl); setImagePreviewUrl(null); }}><div className="work-item-image-preview" role="dialog" aria-modal="true" aria-label="Comment image" onClick={(event) => event.stopPropagation()}><button type="button" aria-label="Close image preview" onClick={() => { URL.revokeObjectURL(imagePreviewUrl); setImagePreviewUrl(null); }}>×</button><img src={imagePreviewUrl} alt="Image attached to comment" /></div></div>}
 
         <div className="work-item-detail-history work-item-status-timeline">
           <h3>Status timeline</h3>

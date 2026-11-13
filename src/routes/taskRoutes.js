@@ -11,6 +11,7 @@
 
 const express = require("express");
 const router = express.Router();
+const { receiveCommentImage } = require("../lib/commentImageUpload");
 const taskController = require("../controllers/taskController");
 const deadlineExtensionController = require("../controllers/deadlineExtensionController");
 const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
@@ -21,6 +22,7 @@ const {
   taskPriorityBody,
   taskProgressBody,
   taskCommentBody,
+  commentImageParams,
   taskAssignmentBody,
   updateTaskBody,
   taskQuery,
@@ -120,8 +122,15 @@ router.post(
   "/:id/comments",
   verifyToken,
   validateRequest(idParams, "params"),
+  receiveCommentImage,
   validateRequest(taskCommentBody),
   taskController.addTaskComment
+);
+router.get(
+  "/:id/comments/:commentId/image",
+  verifyToken,
+  validateRequest(commentImageParams, "params"),
+  taskController.getTaskCommentImage
 );
 router.get(
   "/:id/history",

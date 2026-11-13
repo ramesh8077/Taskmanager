@@ -3,6 +3,7 @@ const path = require("node:path");
 const { Op } = require("sequelize");
 const db = require("../models");
 const { can } = require("../lib/rbac");
+const { hasValidImageSignature } = require("../lib/commentImageUpload");
 const {
   isManager,
   canAssignTask,
@@ -45,6 +46,7 @@ const ticketIncludes = () => [
     as: "comments",
     separate: true,
     order: [["createdAt", "ASC"]],
+    attributes: ["id", "ticketId", "userId", "comment", "imageMimeType", "imageFileName", "createdAt", "updatedAt"],
     include: [{ model: User, as: "user", attributes: ["id", "name"] }],
   },
   {
@@ -659,8 +661,18 @@ async function addComment(req, res) {
     const { comment } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
+    if (req.file && !hasValidImageSignature(req.file)) {
+      return res.status(400).json({ success: false, message: "The uploaded image contents do not match its file type." });
+    }
     const result = await db.sequelize.transaction(async (transaction) => {
-      const created = await TicketComment.create({ ticketId: ticket.id, userId: req.user.id, comment }, { transaction });
+      const created = await TicketComment.create({
+        ticketId: ticket.id,
+        userId: req.user.id,
+        comment,
+        imageData: req.file?.buffer || null,
+        imageMimeType: req.file?.mimetype || null,
+        imageFileName: req.file?.originalname?.split(/[\\/]/).pop()?.replace(/[\r\n\0]/g, "_").slice(0, 255) || null,
+      }, { transaction });
       await recordHistory(ticket, req.user.id, "comment", null, comment.slice(0, 255), "commented", transaction);
       await notifyUsers([ticket.createdBy, ticket.assignedTo].filter((userId) => Number(userId) !== Number(req.user.id)), {
         type: "ticket_comment",
@@ -670,6 +682,7 @@ async function addComment(req, res) {
         dedupeKey: `ticket:${ticket.id}:comment:${created.id}`,
       }, transaction);
       return TicketComment.findByPk(created.id, {
+        attributes: ["id", "ticketId", "userId", "comment", "imageMimeType", "imageFileName", "createdAt", "updatedAt"],
         include: [{ model: User, as: "user", attributes: ["id", "name"] }],
         transaction,
       });
@@ -678,6 +691,28 @@ async function addComment(req, res) {
   } catch (error) {
     console.error("❌ Add Ticket Comment Error:", error);
     return res.status(500).json({ success: false, message: "Internal server error while adding the ticket comment." });
+  }
+}
+
+async function getTicketCommentImage(req, res) {
+  try {
+    const { id, commentId } = req.validatedParams || req.params;
+    const ticket = await getScopedTicket(req, id);
+    if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
+    const comment = await TicketComment.findOne({
+      where: { id: commentId, ticketId: ticket.id },
+      attributes: ["imageData", "imageMimeType"],
+    });
+    if (!comment?.imageData || !comment.imageMimeType) {
+      return res.status(404).json({ success: false, message: "Comment image not found." });
+    }
+    res.setHeader("Content-Type", comment.imageMimeType);
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Cache-Control", "private, no-store");
+    return res.send(comment.imageData);
+  } catch (error) {
+    console.error("Get Ticket Comment Image Error:", error);
+    return res.status(500).json({ success: false, message: "Unable to load this comment image." });
   }
 }
 
@@ -780,6 +815,7 @@ module.exports = {
   updateTicketDescription,
   resolveLegacyTicket,
   reopenTicket,
+  getTicketCommentImage,
   updateDeadline,
   updatePriority,
   addComment,
