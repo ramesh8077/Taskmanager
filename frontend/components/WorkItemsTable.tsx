@@ -523,7 +523,7 @@ export default function WorkItemsTable({
                   />
                   {positionLabel(position)}
                 </label>
-              ))}
+              ))} 
             </div>
           </fieldset>
 
@@ -560,7 +560,7 @@ export default function WorkItemsTable({
                     />
                     {department}
                   </label>
-                ))}
+                ))} 
               </div>
             </fieldset>
           )}
