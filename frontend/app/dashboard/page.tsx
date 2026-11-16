@@ -9,7 +9,11 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const isIndividual = user?.position === "EMPLOYEE" || user?.position === "INTERN";
   const isManager = user?.position === "MANAGER";
-  const positionLabel = user?.position.toLowerCase().replaceAll("_", " ") || "";
+  const dashboardHint = isIndividual
+    ? "Your tasks and tickets, with the newest items shown first. Click a column heading to change the order."
+    : isManager
+      ? "Review work across departments. Use the status tabs or filters to narrow the list, or click a column heading to sort."
+      : "Review tasks and tickets assigned to your team. Use the status tabs to narrow the list, or click a column heading to sort.";
 
   return (
     <ProtectedRoute>
@@ -24,7 +28,7 @@ export default function DashboardPage() {
                   : "Team Tasks & Tickets"}
             </h1>
             <p className="dashboard-page-subtitle">
-              {user?.name} · {user?.department} · {positionLabel}
+              {dashboardHint}
             </p>
           </div>
           <WorkItemCreateActions />

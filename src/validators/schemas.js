@@ -316,8 +316,8 @@ const workItemListQuery = z
     search: z.string().trim().max(100).optional(),
     page: z.coerce.number().int().positive().max(1000000).default(1),
     pageSize: z.coerce.number().int().positive().max(100).default(20),
-    sortBy: z.enum(["createdAt", "deadline", "priority"]).default("deadline"),
-    sortOrder: z.enum(["ASC", "DESC"]).default("ASC"),
+    sortBy: z.enum(["referenceId", "title", "status", "priority", "deadline", "assignedTo", "createdBy", "department", "createdAt"]).default("createdAt"),
+    sortOrder: z.enum(["ASC", "DESC"]).default("DESC"),
   })
   .strict()
   .refine(

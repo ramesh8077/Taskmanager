@@ -23,7 +23,8 @@ test("work item query defaults to the Tasks view and Pending status", () => {
   assert.equal(parsed.success, true);
   assert.equal(parsed.data.view, "tasks");
   assert.equal(parsed.data.status, "PENDING");
-  assert.equal(parsed.data.sortBy, "deadline");
+  assert.equal(parsed.data.sortBy, "createdAt");
+  assert.equal(parsed.data.sortOrder, "DESC");
 });
 
 test("work item status groups map the separate model enums consistently", () => {

@@ -34,7 +34,7 @@ export default function DashboardSectionPage() {
               <div className="dashboard-page-header">
                 <div>
                   <h1 className="dashboard-page-title">{item.href.endsWith("all-tasks") ? "All Tasks" : "All Tickets"}</h1>
-                  <p className="dashboard-page-subtitle">{user?.name} · {user?.department} · {user?.position.toLowerCase().replaceAll("_", " ")}</p>
+                  <p className="dashboard-page-subtitle">{item.href.endsWith("all-tasks") ? "Tasks across the workspace. Use status tabs and filters to narrow the list." : "Tickets across the workspace. Use status tabs and filters to narrow the list."}</p>
                 </div>
               </div>
               <WorkItemsTable fixedView={item.href.endsWith("all-tasks") ? "tasks" : "tickets"} />
@@ -43,7 +43,7 @@ export default function DashboardSectionPage() {
             <DashboardDirectory mode={item.href.endsWith("teams") ? "teams" : "members"} />
           ) : item.href === "/dashboard/my-tasks" || item.href === "/dashboard/my-tickets" ? (
             <>
-              <div className="dashboard-page-header"><div><h1 className="dashboard-page-title">{item.href.endsWith("my-tasks") ? "My Tasks" : "My Tickets"}</h1><p className="dashboard-page-subtitle">{user?.name} · Items assigned to your account</p></div></div>
+              <div className="dashboard-page-header"><div><h1 className="dashboard-page-title">{item.href.endsWith("my-tasks") ? "My Tasks" : "My Tickets"}</h1><p className="dashboard-page-subtitle">Work assigned to you, sorted by due date.</p></div></div>
               <WorkItemsTable fixedView={item.href.endsWith("my-tasks") ? "tasks" : "tickets"} initialAssignedTo={user?.id} />
             </>
           ) : item.href === "/dashboard/team-tasks" || item.href === "/dashboard/team-tickets" ? (
@@ -65,7 +65,7 @@ export default function DashboardSectionPage() {
             <>
               <h1 className="dashboard-page-title">Create task</h1>
               <p className="dashboard-page-subtitle">
-                Create a task and assign it to a member in your permitted scope.
+                Add a title, assignee and due date. Choosing a project is optional.
               </p>
               <div className="dashboard-create-route-action">
                 <WorkItemCreateActions initialDialog="task" />

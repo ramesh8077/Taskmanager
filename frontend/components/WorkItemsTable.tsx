@@ -7,7 +7,7 @@ import WorkItemDetails from "@/components/WorkItemDetails";
 
 type View = "tasks" | "tickets";
 type Status = "PENDING" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "BLOCKED" | "ALL";
-type SortBy = "createdAt" | "deadline" | "priority";
+type SortBy = "referenceId" | "title" | "status" | "priority" | "deadline" | "assignedTo" | "createdBy" | "department" | "createdAt";
 type Position = "MANAGER" | "SUB_MANAGER" | "TEAM_LEAD" | "EMPLOYEE" | "INTERN";
 type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
@@ -98,17 +98,17 @@ const initialFilters: Filters = {
   search: "",
   page: 1,
   pageSize: 20,
-  sortBy: "deadline",
-  sortOrder: "ASC",
+  sortBy: "createdAt",
+  sortOrder: "DESC",
 };
 
 const statusTabs: Array<{ value: Status; label: string; countKey: keyof Result["counts"] }> = [
-  { value: "PENDING", label: "Pending", countKey: "pending" },
-  { value: "IN_PROGRESS", label: "In Progress", countKey: "inProgress" },
-  { value: "IN_REVIEW", label: "In Review", countKey: "inReview" },
-  { value: "DONE", label: "Done", countKey: "done" },
-  { value: "BLOCKED", label: "Blocked", countKey: "blocked" },
   { value: "ALL", label: "All", countKey: "all" },
+  { value: "IN_PROGRESS", label: "In Progress", countKey: "inProgress" },
+  { value: "PENDING", label: "Pending", countKey: "pending" },
+  { value: "DONE", label: "Done", countKey: "done" },
+  { value: "IN_REVIEW", label: "In Review", countKey: "inReview" },
+  { value: "BLOCKED", label: "Blocked", countKey: "blocked" },
 ];
 
 const priorityOptions: Array<{ value: Priority; label: string }> = [
@@ -139,7 +139,7 @@ function readFilters(): Filters {
   const rawPageSize = Number(params.get("pageSize"));
   const rawPage = Number(params.get("page"));
   const statusValues = statusTabs.map((tab) => tab.value);
-  const sortByValues: SortBy[] = ["createdAt", "deadline", "priority"];
+  const sortByValues: SortBy[] = ["referenceId", "title", "status", "priority", "deadline", "assignedTo", "createdBy", "department", "createdAt"];
   return {
     ...initialFilters,
     view: params.get("view") === "tickets" ? "tickets" : "tasks",
@@ -161,8 +161,8 @@ function readFilters(): Filters {
     pageSize: [10, 20, 50, 100].includes(rawPageSize) ? rawPageSize : 20,
     sortBy: sortByValues.includes(params.get("sortBy") as SortBy)
       ? params.get("sortBy") as SortBy
-      : "deadline",
-    sortOrder: params.get("sortOrder") === "DESC" ? "DESC" : "ASC",
+      : "createdAt",
+    sortOrder: params.get("sortOrder") === "ASC" ? "ASC" : "DESC",
   };
 }
 
@@ -205,14 +205,21 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(`${value.slice(0, 10)}T00:00:00`));
 }
 
+function localDateValue(value: Date) {
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, "0");
+  const day = String(value.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function deadlineRange(days: number) {
   const start = new Date();
-  start.setUTCHours(0, 0, 0, 0);
+  start.setHours(0, 0, 0, 0);
   const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + days);
+  end.setDate(end.getDate() + days);
   return {
-    deadlineFrom: start.toISOString().slice(0, 10),
-    deadlineTo: end.toISOString().slice(0, 10),
+    deadlineFrom: localDateValue(start),
+    deadlineTo: localDateValue(end),
   };
 }
 
@@ -250,11 +257,22 @@ export default function WorkItemsTable({
   const [selectedItem, setSelectedItem] = useState<WorkItem | null>(null);
   const [assigneeSearch, setAssigneeSearch] = useState("");
   const [creatorSearch, setCreatorSearch] = useState("");
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
   const filtersRef = useRef(initialFilters);
 
   const showManagementFilters = ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(user?.position || "");
   const isManager = user?.position === "MANAGER";
   const pageCount = Math.max(1, Math.ceil((result?.total || 0) / filters.pageSize));
+  const advancedFilterCount = [
+    Boolean(filters.assignedTo && !initialAssignedTo),
+    filters.assigneePosition.length > 0,
+    Boolean(filters.createdBy),
+    filters.department.length > 0,
+    filters.priority.length > 0,
+    Boolean(filters.deadlineFrom || filters.deadlineTo),
+    Boolean(filters.createdFrom || filters.createdTo),
+    filters.overdue,
+  ].filter(Boolean).length;
 
   useEffect(() => {
     const onPopState = () => {
@@ -346,7 +364,7 @@ export default function WorkItemsTable({
     setAssigneeSearch("");
     setCreatorSearch("");
     updateFilters({
-      status: fixedView ? "ALL" : "PENDING",
+      status: "ALL",
       assignedTo: initialAssignedTo,
       assigneePosition: [],
       createdBy: undefined,
@@ -360,10 +378,10 @@ export default function WorkItemsTable({
       search: "",
       page: 1,
       pageSize: 20,
-      sortBy: "deadline",
-      sortOrder: "ASC",
+      sortBy: "createdAt",
+      sortOrder: "DESC",
     });
-  }, [fixedView, initialAssignedTo, updateFilters]);
+  }, [initialAssignedTo, updateFilters]);
 
   const removeChip = useCallback((key: keyof Filters, value?: string) => {
     if (key === "assigneePosition" || key === "department" || key === "priority") {
@@ -415,7 +433,7 @@ export default function WorkItemsTable({
       label: `Priority: ${priorityOptions.find((option) => option.value === value)?.label || value}`,
     }));
     if (filters.deadlineFrom || filters.deadlineTo) {
-      items.push({ key: "deadlineFrom", label: `Deadline: ${filters.deadlineFrom || "Any"} – ${filters.deadlineTo || "Any"}` });
+      items.push({ key: "deadlineFrom", label: `Due date: ${filters.deadlineFrom || "Any"} – ${filters.deadlineTo || "Any"}` });
     }
     if (filters.createdFrom || filters.createdTo) {
       items.push({ key: "createdFrom", label: `Created: ${filters.createdFrom || "Any"} – ${filters.createdTo || "Any"}` });
@@ -424,6 +442,7 @@ export default function WorkItemsTable({
     if (filters.search) items.push({ key: "search", label: `Search: ${filters.search}` });
     return items;
   }, [filters, initialAssignedTo, result]);
+  const hasActiveFilters = filters.status !== "ALL" || chips.length > 0;
 
   const toggleArrayFilter = (key: "assigneePosition" | "department" | "priority", value: string) => {
     const current = filters[key] as string[];
@@ -436,7 +455,7 @@ export default function WorkItemsTable({
   const changeSort = (sortBy: SortBy) => {
     const sortOrder = filters.sortBy === sortBy
       ? filters.sortOrder === "ASC" ? "DESC" : "ASC"
-      : sortBy === "createdAt" ? "DESC" : "ASC";
+      : "DESC";
     updateFilters({ sortBy, sortOrder });
   };
 
@@ -449,7 +468,7 @@ export default function WorkItemsTable({
             role="tab"
             aria-selected={filters.view === "tasks"}
             className={filters.view === "tasks" ? "is-selected" : ""}
-            onClick={() => updateFilters({ view: "tasks", page: 1, sortBy: "deadline", sortOrder: "ASC" })}
+            onClick={() => updateFilters({ view: "tasks", page: 1, sortBy: "createdAt", sortOrder: "DESC" })}
           >
             Tasks <span>{result?.viewCounts.tasks ?? "—"}</span>
           </button>
@@ -458,7 +477,7 @@ export default function WorkItemsTable({
             role="tab"
             aria-selected={filters.view === "tickets"}
             className={filters.view === "tickets" ? "is-selected" : ""}
-            onClick={() => updateFilters({ view: "tickets", page: 1, sortBy: "deadline", sortOrder: "ASC" })}
+            onClick={() => updateFilters({ view: "tickets", page: 1, sortBy: "createdAt", sortOrder: "DESC" })}
           >
             Tickets <span>{result?.viewCounts.tickets ?? "—"}</span>
           </button>
@@ -468,7 +487,7 @@ export default function WorkItemsTable({
           <input
             type="search"
             value={filters.search}
-            placeholder={`Search ${filters.view}…`}
+            placeholder={`Search by title, assignee, or ${filters.view === "tasks" ? "task" : "ticket"} ID…`}
             onChange={(event) => updateFilters({ search: event.target.value }, true, true)}
           />
         </label>
@@ -480,7 +499,7 @@ export default function WorkItemsTable({
             type="button"
             role="tab"
             aria-selected={filters.status === tab.value}
-            className={filters.status === tab.value ? "is-selected" : ""}
+            className={`status-filter-${tab.value.toLowerCase()}${filters.status === tab.value ? " is-selected" : ""}`}
             key={tab.value}
             onClick={() => updateFilters({ status: tab.value })}
           >
@@ -489,8 +508,36 @@ export default function WorkItemsTable({
         ))}
       </div>
 
-        {showManagementFilters && !initialAssignedTo && (
+      <div className="work-items-filter-controls">
+        {showManagementFilters && !initialAssignedTo ? (
+          <button
+            type="button"
+            className="work-items-filter-toggle"
+            aria-expanded={filtersExpanded}
+            onClick={() => setFiltersExpanded((expanded) => !expanded)}
+          >
+            <span aria-hidden="true">☷</span>
+            Filters
+            {advancedFilterCount > 0 && <span className="work-items-filter-count">{advancedFilterCount} active</span>}
+            <span className="work-items-filter-chevron" aria-hidden="true">{filtersExpanded ? "⌃" : "⌄"}</span>
+          </button>
+        ) : <span />}
+        <span className="work-items-sort-summary">
+          Sorted by <strong>{filters.sortBy === "referenceId" ? "ID" : filters.sortBy === "title" ? "title" : filters.sortBy === "status" ? "status" : filters.sortBy === "priority" ? "priority" : filters.sortBy === "deadline" ? filters.view === "tasks" ? "due date" : "deadline" : filters.sortBy === "assignedTo" ? "assignee" : filters.sortBy === "createdBy" ? "creator" : filters.sortBy === "department" ? "department" : "created date"}</strong>
+          {filters.sortBy === "createdAt"
+            ? filters.sortOrder === "DESC" ? " · newest first" : " · oldest first"
+            : filters.sortBy === "deadline"
+              ? filters.sortOrder === "ASC" ? " · soonest first" : " · latest first"
+              : filters.sortBy === "priority"
+                ? filters.sortOrder === "DESC" ? " · highest first" : " · lowest first"
+                : filters.sortOrder === "DESC" ? " · Z to A" : " · A to Z"}
+        </span>
+      </div>
+
+        {showManagementFilters && !initialAssignedTo && filtersExpanded && (
         <div className="work-items-filters">
+          <div className="work-items-filter-group">
+            <h3>People and team</h3>
           <label className="work-items-field">
             Assigned to
             <input
@@ -564,37 +611,42 @@ export default function WorkItemsTable({
               </div>
             </fieldset>
           )}
+          </div>
 
+          <div className="work-items-filter-group">
+            <h3>Priority and dates</h3>
           <fieldset className="work-items-fieldset">
             <legend>Priority</legend>
-            <div className="work-items-checks">
+            <div className="work-items-priority-filters">
               {priorityOptions.map((option) => (
-                <label key={option.value}>
-                  <input
-                    type="checkbox"
-                    checked={filters.priority.includes(option.value)}
-                    onChange={() => toggleArrayFilter("priority", option.value)}
-                  />
+                <button
+                  type="button"
+                  role="checkbox"
+                  aria-checked={filters.priority.includes(option.value)}
+                  className={`work-items-priority-filter priority-filter-${option.value.toLowerCase()}${filters.priority.includes(option.value) ? " is-selected" : ""}`}
+                  key={option.value}
+                  onClick={() => toggleArrayFilter("priority", option.value)}
+                >
                   {option.label}
-                </label>
+                </button>
               ))}
             </div>
           </fieldset>
 
           <label className="work-items-field">
-            Deadline from
+            Due date from
             <input type="date" value={filters.deadlineFrom} onChange={(event) => updateFilters({ deadlineFrom: event.target.value })} />
           </label>
           <label className="work-items-field">
-            Deadline to
+            Due date to
             <input type="date" value={filters.deadlineTo} onChange={(event) => updateFilters({ deadlineTo: event.target.value })} />
           </label>
-          <div className="work-items-presets" aria-label="Deadline presets">
-            <span>Due:</span>
+          <div className="work-items-presets" aria-label="Due date shortcuts">
+            <span>Due date:</span>
             <button type="button" onClick={() => updateFilters(deadlineRange(0))}>Today</button>
             <button type="button" onClick={() => updateFilters(deadlineRange(7))}>Next 7 days</button>
             <button type="button" onClick={() => updateFilters(deadlineRange(30))}>Next 30 days</button>
-            <button type="button" onClick={() => updateFilters({ deadlineFrom: "", deadlineTo: "" })}>Any</button>
+            <button type="button" onClick={() => updateFilters({ deadlineFrom: "", deadlineTo: "" })}>Any date</button>
           </div>
           <label className="work-items-field">
             Created from
@@ -612,11 +664,16 @@ export default function WorkItemsTable({
             />
             Overdue only
           </label>
+          </div>
         </div>
       )}
 
       <div className="work-items-filter-summary">
-        <span>{loading ? "Loading…" : `${result?.total ?? 0} results`}</span>
+        <span aria-live="polite">
+          {loading
+            ? result ? "Updating list…" : `Loading ${filters.view}…`
+            : `${result?.total ?? 0} ${filters.view}`}
+        </span>
         {chips.length > 0 && (
           <div className="work-items-chips" aria-label="Active filters">
             {chips.map((chip, index) => (
@@ -645,28 +702,48 @@ export default function WorkItemsTable({
             <table className="work-items-table">
               <thead>
                 <tr>
-                  <th>{filters.view === "tasks" ? "Task ID" : "Ticket ID"}</th>
-                  <th>Title</th>
-                  <th>Assigned To</th>
-                  <th>Created By / Assigned By</th>
-                  <th>
-                    <button type="button" onClick={() => changeSort("createdAt")}>
-                      Created date{filters.sortBy === "createdAt" ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
-                    </button>
-                  </th>
-                  <th>Department</th>
-                  <th>
-                    <button type="button" onClick={() => changeSort("priority")}>
+                  {(["referenceId", "title", "status"] as const).map((key) => {
+                    const label = key === "referenceId" ? filters.view === "tasks" ? "Task ID" : "Ticket ID" : key === "title" ? filters.view === "tasks" ? "Task" : "Ticket" : "Status";
+                    return <th key={key} aria-sort={filters.sortBy === key ? filters.sortOrder === "ASC" ? "ascending" : "descending" : "none"}>
+                      <button type="button" aria-pressed={filters.sortBy === key} onClick={() => changeSort(key)}>
+                        {label}{filters.sortBy === key ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
+                      </button>
+                    </th>;
+                  })}
+                  <th aria-sort={filters.sortBy === "priority" ? filters.sortOrder === "ASC" ? "ascending" : "descending" : "none"}>
+                    <button
+                      type="button"
+                      aria-pressed={filters.sortBy === "priority"}
+                      aria-label={`Sort by priority, ${filters.sortBy === "priority" ? filters.sortOrder === "DESC" ? "highest first" : "lowest first" : "highest first"}`}
+                      onClick={() => changeSort("priority")}
+                    >
                       Priority{filters.sortBy === "priority" ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
                     </button>
                   </th>
-                  <th>
-                    <button type="button" onClick={() => changeSort("deadline")}>
-                      Deadline{filters.sortBy === "deadline" ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
+                  <th aria-sort={filters.sortBy === "deadline" ? filters.sortOrder === "ASC" ? "ascending" : "descending" : "none"}>
+                    <button
+                      type="button"
+                      aria-pressed={filters.sortBy === "deadline"}
+                      aria-label={`Sort by ${filters.view === "tasks" ? "due date" : "deadline"}, ${filters.sortBy === "deadline" ? filters.sortOrder === "ASC" ? "earliest first" : "latest first" : "latest first"}`}
+                      onClick={() => changeSort("deadline")}
+                    >
+                      {filters.view === "tasks" ? "Due date" : "Deadline"}{filters.sortBy === "deadline" ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
                     </button>
                   </th>
-                  <th>Status</th>
-                  <th>Action</th>
+                  {(["assignedTo", "createdBy", "department"] as const).map((key) => {
+                    const label = key === "assignedTo" ? "Assignee" : key === "createdBy" ? "Created by" : "Department";
+                    return <th key={key} aria-sort={filters.sortBy === key ? filters.sortOrder === "ASC" ? "ascending" : "descending" : "none"}>
+                      <button type="button" aria-pressed={filters.sortBy === key} onClick={() => changeSort(key)}>
+                        {label}{filters.sortBy === key ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
+                      </button>
+                    </th>;
+                  })}
+                  <th aria-sort={filters.sortBy === "createdAt" ? filters.sortOrder === "ASC" ? "ascending" : "descending" : "none"}>
+                    <button type="button" aria-pressed={filters.sortBy === "createdAt"} onClick={() => changeSort("createdAt")}>
+                      Created date{filters.sortBy === "createdAt" ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
+                    </button>
+                  </th>
+                  <th>Details</th>
                 </tr>
               </thead>
               <tbody>
@@ -679,12 +756,15 @@ export default function WorkItemsTable({
                 ) : result?.data.length ? (
                   result.data.map((item) => {
                     const overdue = !!item.deadline &&
-                      item.deadline.slice(0, 10) < new Date().toISOString().slice(0, 10) &&
+                      item.deadline.slice(0, 10) < localDateValue(new Date()) &&
                       item.status !== "DONE";
                     return (
                       <tr key={`${item.type}-${item.id}`}>
                         <td className="work-items-id">{item.referenceId}</td>
                         <td className="work-items-title">{item.title}</td>
+                        <td><span className={`work-items-status status-${item.status.toLowerCase()}`}>{statusLabels[item.status] || item.status}</span></td>
+                        <td><span className={`work-items-priority priority-${item.priority.toLowerCase()}`}>{priorityOptions.find((option) => option.value === item.priority)?.label || item.priority}</span></td>
+                        <td className={overdue ? "is-overdue" : ""}>{formatDate(item.deadline)}</td>
                         <td>
                           {item.assignedTo ? (
                             <>
@@ -701,12 +781,9 @@ export default function WorkItemsTable({
                             </>
                           ) : "—"}
                         </td>
-                        <td>{formatDate(item.createdAt)}</td>
                         <td>{item.department}</td>
-                        <td><span className={`work-items-priority priority-${item.priority.toLowerCase()}`}>{item.priority}</span></td>
-                        <td className={overdue ? "is-overdue" : ""}>{formatDate(item.deadline)}</td>
-                        <td><span className={`work-items-status status-${item.status.toLowerCase()}`}>{statusLabels[item.status] || item.status}</span></td>
-                        <td><button type="button" className="work-items-view-row" onClick={() => setSelectedItem(item)}>View</button></td>
+                        <td>{formatDate(item.createdAt)}</td>
+                        <td><button type="button" className="work-items-view-row" onClick={() => setSelectedItem(item)}>Details</button></td>
                       </tr>
                     );
                   })
@@ -714,9 +791,9 @@ export default function WorkItemsTable({
                   <tr>
                     <td colSpan={10}>
                       <div className="work-items-empty">
-                        <strong>No {filters.view} found</strong>
-                        <span>Try changing or clearing the filters.</span>
-                        <button type="button" onClick={clearFilters}>Clear filters</button>
+                        <strong>{hasActiveFilters ? `No ${filters.view} match these filters` : `No ${filters.view} yet`}</strong>
+                        <span>{hasActiveFilters ? "Clear some filters to see more results." : "New work will appear here when it is created."}</span>
+                        {hasActiveFilters && <button type="button" onClick={clearFilters}>Clear filters</button>}
                       </div>
                     </td>
                   </tr>
@@ -727,7 +804,7 @@ export default function WorkItemsTable({
 
           <div className="work-items-pagination">
             <label>
-              Rows
+              Rows per page
               <select
                 value={filters.pageSize}
                 onChange={(event) => updateFilters({ pageSize: Number(event.target.value) })}

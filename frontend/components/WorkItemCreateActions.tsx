@@ -29,6 +29,14 @@ function getErrorMessage(error: unknown) {
   if (
     typeof error === "object" &&
     error !== null &&
+    "code" in error &&
+    (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT")
+  ) {
+    return "The server took too long to respond. Please try again.";
+  }
+  if (
+    typeof error === "object" &&
+    error !== null &&
     "response" in error &&
     typeof error.response === "object" &&
     error.response !== null &&
@@ -52,51 +60,77 @@ export default function WorkItemCreateActions({
   const [dialog, setDialog] = useState<"task" | "ticket" | "project" | null>(initialDialog);
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [members, setMembers] = useState<MemberOption[]>([]);
-  const [loadingOptions, setLoadingOptions] = useState(initialDialog === "task");
+  const [loadingProjects, setLoadingProjects] = useState(false);
+  const [loadingMembers, setLoadingMembers] = useState(false);
+  const [projectLoadError, setProjectLoadError] = useState(false);
+  const [memberLoadError, setMemberLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const scopedProjects = projects.filter((project) => project.department);
   const canCreateTask = can(user, "task:create");
   const canCreateTicket = can(user, "ticket:create");
+  const canAssignTasks = can(user, "task:assign");
+  const canAssignTickets = can(user, "ticket:assign") && user?.position !== "INTERN";
   const canCreateProject = ["MANAGER", "SUB_MANAGER"].includes(user?.position || "") &&
     can(user, "project:create");
 
   function openTaskDialog() {
     setDialog("task");
     setError("");
-    setLoadingOptions(true);
   }
 
   function openTicketDialog() {
     setDialog("ticket");
     setError("");
-    setLoadingOptions(true);
   }
 
   useEffect(() => {
     if (dialog !== "task" && dialog !== "ticket") return;
     let active = true;
-    const loadTaskOptions = async () => {
-      try {
-        const [projectResponse, memberResponse] = await Promise.all([
-          API.get<ApiEnvelope<{ projects: ProjectOption[] }>>("/projects"),
-          API.get<ApiEnvelope<{ members: MemberOption[] }>>("/users/members"),
-        ]);
-        if (!active) return;
-        setProjects(projectResponse.data.data.projects || []);
-        setMembers(memberResponse.data.data.members || []);
-      } catch (requestError) {
-        if (active) setError(getErrorMessage(requestError));
-      } finally {
-        if (active) setLoadingOptions(false);
-      }
-    };
-    void loadTaskOptions();
+    const loadProjects = dialog === "task";
+    const loadMembers = dialog === "task" ? canAssignTasks : canAssignTickets;
+
+    if (loadProjects) {
+      setLoadingProjects(true);
+      setProjectLoadError(false);
+      void API.get<ApiEnvelope<{ projects: ProjectOption[] }>>("/projects")
+        .then((response) => {
+          if (active) setProjects(response.data.data.projects || []);
+        })
+        .catch(() => {
+          if (active) setProjectLoadError(true);
+        })
+        .finally(() => {
+          if (active) setLoadingProjects(false);
+        });
+    } else {
+      setLoadingProjects(false);
+    }
+
+    if (loadMembers) {
+      setLoadingMembers(true);
+      setMemberLoadError(false);
+      void API.get<ApiEnvelope<{ members: MemberOption[] }>>("/users/members")
+        .then((response) => {
+          if (active) setMembers(response.data.data.members || []);
+        })
+        .catch(() => {
+          if (active) setMemberLoadError(true);
+        })
+        .finally(() => {
+          if (active) setLoadingMembers(false);
+        });
+    } else {
+      setMembers([]);
+      setLoadingMembers(false);
+      setMemberLoadError(false);
+    }
+
     return () => {
       active = false;
     };
-  }, [dialog]);
+  }, [dialog, canAssignTasks, canAssignTickets]);
 
   async function submitProject(formData: FormData) {
     setError("");
@@ -251,8 +285,6 @@ export default function WorkItemCreateActions({
                   <button type="submit" className="work-item-create-button is-primary" disabled={submitting}>{submitting ? "Creating…" : "Create project"}</button>
                 </div>
               </form>
-            ) : loadingOptions ? (
-              <p className="work-item-dialog-loading" role="status">Loading projects and assignable team members…</p>
             ) : dialog === "ticket" ? (
               <form action={(formData) => void submitTicket(formData)} className="work-item-dialog-form">
                 <label>
@@ -286,8 +318,9 @@ export default function WorkItemCreateActions({
                   {user?.position !== "INTERN" && can(user, "ticket:assign") && (
                     <label>
                       Assign to
-                      <select name="assignedTo" defaultValue="">
+                    <select name="assignedTo" defaultValue="">
                         <option value="">Unassigned</option>
+                      {loadingMembers && <option disabled>Loading team members…</option>}
                         {members.map((member) => (
                           <option key={member.id} value={member.id}>
                             {member.name} · {member.department} · {member.position.replaceAll("_", " ")}
@@ -311,11 +344,11 @@ export default function WorkItemCreateActions({
             ) : (
               <form action={(formData) => void submitTask(formData)} className="work-item-dialog-form">
                 <label>
-                  Task title
+                  Task title (required)
                   <input name="title" minLength={3} maxLength={200} required />
                 </label>
                 <label>
-                  Description
+                  Description (optional)
                   <textarea name="description" rows={3} maxLength={10000} />
                 </label>
                 <div className="work-item-dialog-grid">
@@ -323,14 +356,22 @@ export default function WorkItemCreateActions({
                     Project (optional)
                     <select name="projectId" defaultValue="">
                       <option value="">No project</option>
+                      {loadingProjects && <option disabled>Loading projects…</option>}
                       {scopedProjects.map((project) => <option key={project.id} value={project.id}>{project.title} · {project.department}</option>)}
                     </select>
+                    {!loadingProjects && (projectLoadError || scopedProjects.length === 0) && (
+                      <span className="work-item-dialog-hint">
+                        {projectLoadError
+                          ? "Projects could not be loaded. You can still create this task without one."
+                          : "No projects available. You can still create this task without one."}
+                      </span>
+                    )}
                   </label>
                   <label>
-                    Assigned to
-                    <select name="assignedTo" required defaultValue="">
-                      <option value="" disabled>Select a team member</option>
-                      <option value={user?.id}>Me ({user?.name})</option>
+                    Assignee (required)
+                    <select name="assignedTo" required defaultValue={user?.id || ""}>
+                      {user && <option value={user.id}>Assign to me ({user.name})</option>}
+                      {loadingMembers && <option disabled>Loading team members…</option>}
                       {(can(user, "task:assign") ? members : []).map((member) => (
                         <option key={member.id} value={member.id}>
                           {member.name} · {member.department} · {member.position.replaceAll("_", " ")}
@@ -339,11 +380,11 @@ export default function WorkItemCreateActions({
                     </select>
                   </label>
                   <label>
-                    Deadline
+                    Due date (required)
                     <input name="dueDate" type="date" required />
                   </label>
                   <label>
-                    Priority
+                    Priority (default: Medium)
                     <select name="priority" defaultValue="Medium">
                       <option>Low</option>
                       <option>Medium</option>
@@ -352,9 +393,11 @@ export default function WorkItemCreateActions({
                     </select>
                   </label>
                 </div>
-                {members.length === 0 && can(user, "task:assign") && (
+                {!loadingMembers && canAssignTasks && (memberLoadError || members.length === 0) && (
                   <p className="work-item-dialog-hint">
-                    There are no team members you can assign tasks to.
+                    {memberLoadError
+                      ? "Team members could not be loaded. You can still assign this task to yourself."
+                      : "There are no team members you can assign tasks to."}
                   </p>
                 )}
                 <div className="work-item-dialog-actions">

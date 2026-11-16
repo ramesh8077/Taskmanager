@@ -22,14 +22,28 @@ function assigneeScopeInclude() {
 
 function combinePriorityOrder(view, direction) {
   const values = view === "tasks"
-    ? "'Urgent', 'URGENT', 'High', 'HIGH', 'Medium', 'MEDIUM', 'Low', 'LOW'"
-    : "'P0', 'URGENT', 'P1', 'HIGH', 'P2', 'MEDIUM', 'LOW'";
+    ? "'Low', 'LOW', 'Medium', 'MEDIUM', 'High', 'HIGH', 'Urgent', 'URGENT'"
+    : "'LOW', 'P2', 'MEDIUM', 'P1', 'HIGH', 'P0', 'URGENT'";
   return db.sequelize.literal(`FIELD(${view === "tasks" ? "Task" : "Ticket"}.priority, ${values}) ${direction}`);
 }
 
 function orderBy(view, sortBy, sortOrder) {
   const modelName = view === "tasks" ? "Task" : "Ticket";
   const deadlineField = view === "tasks" ? "dueDate" : "deadline";
+  if (sortBy === "referenceId") {
+    return [[view === "tasks" ? "id" : "ticketId", sortOrder], ["createdAt", "DESC"]];
+  }
+  if (sortBy === "title" || sortBy === "department") {
+    return [[sortBy, sortOrder], ["createdAt", "DESC"]];
+  }
+  if (sortBy === "status") {
+    const statusRank = "FIELD(" + modelName + ".status, 'Pending', 'TODO', 'Open', 'In-Progress', 'IN_PROGRESS', 'IN_REVIEW', 'Completed', 'DONE', 'Resolved', 'Closed', 'BLOCKED')";
+    return [[db.sequelize.literal(`${statusRank} ${sortOrder}`)], ["createdAt", "DESC"]];
+  }
+  if (sortBy === "assignedTo" || sortBy === "createdBy") {
+    const association = sortBy === "assignedTo" ? "assignee" : "creator";
+    return [[{ model: User, as: association }, "name", sortOrder], ["createdAt", "DESC"]];
+  }
   if (sortBy === "priority") {
     return [[combinePriorityOrder(view, sortOrder)], ["createdAt", "DESC"]];
   }
