@@ -168,7 +168,7 @@ const createTicket = async (req, res) => {
           type: "ticket_assigned",
           title: "Ticket assigned to you",
           message: `Ticket #${createdTicket.id} “${createdTicket.title}” was assigned to you.`,
-          link: `/dashboard?ticket=${createdTicket.id}`,
+          link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(createdTicket.title)}`,
           dedupeKey: `ticket:${createdTicket.id}:created-assignment`,
         });
         await notification.save({ transaction });

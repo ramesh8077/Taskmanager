@@ -93,6 +93,21 @@ and are downloaded only through authenticated, ticket-scoped API routes.
 Deadline and overdue notifications are deduplicated per ticket and recipient;
 the server checks them at startup, hourly, and when ticket lists are loaded.
 
+### Task and ticket assignment notifications
+
+Assignment notifications are stored in the existing notifications table and
+appear in the dashboard notification menu. To receive browser notifications
+while the app is closed or logged out, run `npm run generate:vapid-keys` once.
+Set the resulting `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, and a real
+`VAPID_SUBJECT` contact (for example `mailto:it@your-company.com`) in the
+backend environment and Vercel project settings. Keep the private key secret
+and reuse the same pair for every deployment. Apply the push subscription
+table with `npm run db:migrate`, deploy the app, sign in on each browser/device,
+and choose **Notifications → Enable notifications when app is closed**. The
+browser must allow notifications; users can revoke permission from browser
+site settings. Assignment notifications are sent to opted-in devices for both
+tasks and tickets.
+
 public registration always creates an `EMPLOYEE`. A submitted role field is
 rejected; role assignment is never accepted from an unauthenticated client.
 Authentication uses a secure-in-production, HTTP-only, SameSite=Lax cookie.

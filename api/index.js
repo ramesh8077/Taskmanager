@@ -14,6 +14,7 @@ require("mysql2");
 require("dotenv").config();
 
 const express = require("express");
+const { createServer } = require("http");
 
 const cors = require("cors");
 
@@ -35,6 +36,7 @@ const settingsRoutes = require("../src/routes/settingsRoutes");
 
 const db = require("../src/models");
 const apiResponse = require("../src/middlewares/apiResponse");
+const { attachRealtimeNotifications } = require("../src/lib/realtimeNotifications");
 
 // ─── Initialize Express App ─────────────────────────────────────────────────
 
@@ -85,6 +87,7 @@ function ensureDB() {
           "202611020002-deadline-extension-requests.js",
           "202611030001-work-items-dashboard-indexes.js",
           "202611120001-employee-task-create-permission.js",
+          "202611160002-push-subscriptions.js",
         ];
         if (
           requiredMigrations.some(
@@ -163,4 +166,7 @@ app.use((error, req, res, next) => {
 
 // ─── Export for Vercel ──────────────────────────────────────────────────────
 
-module.exports = app;
+const httpServer = createServer(app);
+attachRealtimeNotifications(httpServer, ensureDB);
+
+module.exports = httpServer;

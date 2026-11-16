@@ -39,6 +39,7 @@ db.TicketComment = require("./ticketComment.model")(sequelize);
 db.TicketHistory = require("./ticketHistory.model")(sequelize);
 db.TicketAttachment = require("./ticketAttachment.model")(sequelize);
 db.Notification = require("./notification.model")(sequelize);
+db.PushSubscription = require("./pushSubscription.model")(sequelize);
 db.DeadlineHistory = require("./deadlineHistory.model")(sequelize);
 db.DeadlineExtensionRequest = require("./deadlineExtensionRequest.model")(sequelize);
 db.ActivityLog = require("./activityLog.model")(sequelize);
@@ -330,5 +331,24 @@ db.TicketAttachment.belongsTo(db.User, { foreignKey: "uploadedBy", as: "uploader
 db.User.hasMany(db.TicketAttachment, { foreignKey: "uploadedBy", as: "ticketAttachments" });
 db.User.hasMany(db.Notification, { foreignKey: "userId", as: "notifications", onDelete: "CASCADE" });
 db.Notification.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.User.hasMany(db.PushSubscription, { foreignKey: "userId", as: "pushSubscriptions", onDelete: "CASCADE" });
+db.PushSubscription.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+
+const { sendPushForNotification } = require("../lib/pushNotifications");
+const dispatchPush = (notification, transaction) => {
+  const send = () => sendPushForNotification(notification.get({ plain: true }));
+  if (transaction) transaction.afterCommit(send);
+  else return send();
+};
+db.Notification.addHook("afterCreate", "send-browser-push", (notification, options) => {
+  return dispatchPush(notification, options.transaction);
+});
+db.Notification.addHook("afterBulkCreate", "send-browser-push-bulk", (notifications, options) => {
+  const sendAll = () => Promise.all(notifications.map((notification) =>
+    sendPushForNotification(notification.get({ plain: true }))
+  ));
+  if (options.transaction) options.transaction.afterCommit(sendAll);
+  else return sendAll();
+});
 
 module.exports = db;

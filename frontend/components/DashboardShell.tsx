@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Sidebar from "@/components/Sidebar";
+import NotificationCenter from "@/components/NotificationCenter";
 import { useTheme } from "@/context/ThemeContext";
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
@@ -37,6 +38,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             {collapsed ? "»" : "«"}
           </button>
           <span className="dashboard-topbar-title">Task Manager</span>
+          <NotificationCenter />
           <button
             type="button"
             className="dashboard-theme-button"

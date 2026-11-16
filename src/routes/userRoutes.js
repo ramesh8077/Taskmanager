@@ -27,6 +27,9 @@ router.get(
   userController.searchTeamMembers
 );
 router.get("/notifications", verifyToken, notificationController.listNotifications);
+router.get("/notifications/push-public-key", verifyToken, notificationController.getPushPublicKey);
+router.post("/notifications/push-subscriptions", verifyToken, notificationController.savePushSubscription);
+router.delete("/notifications/push-subscriptions", verifyToken, notificationController.deletePushSubscription);
 router.patch(
   "/notifications/:id/read",
   verifyToken,

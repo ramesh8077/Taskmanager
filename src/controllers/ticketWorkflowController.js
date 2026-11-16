@@ -171,7 +171,7 @@ async function emitDeadlineNotifications(now = new Date()) {
       type: isOverdue ? "ticket_overdue" : "ticket_deadline",
       title: isOverdue ? "Ticket overdue" : "Ticket deadline approaching",
       message: `Ticket #${ticket.id} “${ticket.title}” ${isOverdue ? "is overdue" : `is due ${ticket.deadline}`}.`,
-      link: `/dashboard?ticket=${ticket.id}`,
+      link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
       dedupeKey: isOverdue
         ? `ticket:${ticket.id}:overdue`
         : `ticket:${ticket.id}:deadline:${ticket.deadline}`,
@@ -317,7 +317,7 @@ async function assignTicket(req, res) {
           type: "ticket_assigned",
           title: "Ticket assigned to you",
           message: `Ticket #${ticket.id} “${ticket.title}” was assigned to you.`,
-          link: `/dashboard?ticket=${ticket.id}`,
+          link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
           dedupeKey: `ticket:${ticket.id}:assigned:${ticket.updatedAt?.getTime() || Date.now()}`,
         }, transaction);
       }
@@ -377,7 +377,7 @@ async function updateTicketStatus(req, res) {
             type: "ticket_resolved",
             title: "Ticket resolved",
             message: `Ticket #${ticket.id} “${ticket.title}” has been resolved.`,
-            link: `/dashboard?ticket=${ticket.id}`,
+            link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
             dedupeKey: `ticket:${ticket.id}:resolved:${Date.now()}`,
           }, transaction);
         }
@@ -539,7 +539,7 @@ async function resolveLegacyTicket(req, res) {
           type: "ticket_assigned",
           title: "Ticket assigned to you",
           message: `Ticket #${ticket.id} “${ticket.title}” was assigned to you.`,
-          link: `/dashboard?ticket=${ticket.id}`,
+          link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
           dedupeKey: `ticket:${ticket.id}:legacy-resolve-assignment:${Date.now()}`,
         }, transaction);
       }
@@ -551,7 +551,7 @@ async function resolveLegacyTicket(req, res) {
         type: "ticket_resolved",
         title: "Ticket resolved",
         message: `Ticket #${ticket.id} “${ticket.title}” has been resolved.`,
-        link: `/dashboard?ticket=${ticket.id}`,
+        link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
         dedupeKey: `ticket:${ticket.id}:resolved:${Date.now()}`,
       }, transaction);
     });
@@ -678,7 +678,7 @@ async function addComment(req, res) {
         type: "ticket_comment",
         title: "New ticket comment",
         message: `A new comment was added to ticket #${ticket.id} “${ticket.title}”.`,
-        link: `/dashboard?ticket=${ticket.id}`,
+        link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
         dedupeKey: `ticket:${ticket.id}:comment:${created.id}`,
       }, transaction);
       return TicketComment.findByPk(created.id, {
@@ -771,7 +771,7 @@ async function uploadAttachment(req, res) {
         type: "ticket_attachment",
         title: "Ticket attachment added",
         message: `A file was attached to ticket #${ticket.id} “${ticket.title}”.`,
-        link: `/dashboard?ticket=${ticket.id}`,
+        link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
         dedupeKey: `ticket:${ticket.id}:attachment:${attachment.id}`,
       }, transaction);
       return created;

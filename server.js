@@ -13,6 +13,7 @@
 require("dotenv").config();
 
 const express = require("express");
+const { createServer } = require("http");
 
 const cors = require("cors");
 
@@ -22,6 +23,7 @@ const appConfig = require("./src/config/app.config");
 const db = require("./src/models");
 const apiResponse = require("./src/middlewares/apiResponse");
 const { emitDeadlineNotifications } = require("./src/controllers/ticketWorkflowController");
+const { attachRealtimeNotifications } = require("./src/lib/realtimeNotifications");
 
 // ─── Import Routes ──────────────────────────────────────────────────────────
 
@@ -121,6 +123,7 @@ const startServer = async () => {
       "202611020001-department-hierarchy.js",
       "202611020002-deadline-extension-requests.js",
       "202611030001-work-items-dashboard-indexes.js",
+      "202611160002-push-subscriptions.js",
     ];
     const missingMigrations = requiredMigrations.filter(
       (migration) => !migrationRows.some((row) => row.migration_name === migration)
@@ -150,7 +153,9 @@ const startServer = async () => {
     }
 
     // Start Express server — bind to 0.0.0.0 for Railway/Docker compatibility
-    app.listen(PORT, "0.0.0.0", () => {
+    const httpServer = createServer(app);
+    attachRealtimeNotifications(httpServer);
+    httpServer.listen(PORT, "0.0.0.0", () => {
       console.log(`\n🚀 Server is running on http://0.0.0.0:${PORT}`);
       console.log(`📡 Environment: ${appConfig.NODE_ENV}`);
       console.log(`🔐 Auth     → /api/auth`);

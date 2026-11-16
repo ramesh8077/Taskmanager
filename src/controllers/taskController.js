@@ -36,6 +36,7 @@ const TaskHistory = db.TaskHistory;
 const Ticket = db.Ticket;
 const DeadlineHistory = db.DeadlineHistory;
 const ActivityLog = db.ActivityLog;
+const Notification = db.Notification;
 const {
   canAssignTask,
   canEditTask,
@@ -196,6 +197,16 @@ const createTask = async (req, res) => {
         entityId: String(newTask.id),
         metadata: { assignedTo: assignee.id, projectId: project?.id ?? null },
       }, { transaction });
+      if (Number(assignee.id) !== Number(req.user.id)) {
+        await Notification.create({
+          userId: assignee.id,
+          type: "task_assigned",
+          title: "Task assigned to you",
+          message: `Task #${newTask.id} “${newTask.title}” was assigned to you.`,
+          link: `/dashboard?view=tasks&status=ALL&search=${encodeURIComponent(newTask.title)}`,
+          dedupeKey: `task:${newTask.id}:created-assignment`,
+        }, { transaction });
+      }
       return Task.findByPk(newTask.id, {
         transaction,
         include: [
@@ -955,7 +966,7 @@ const assignTask = async (req, res) => {
       task.assignedTo = assignee.id;
       task.department = assignee.department;
       await task.save({ transaction });
-      await TaskHistory.create({
+      const assignmentHistory = await TaskHistory.create({
         taskId: task.id,
         changedBy: req.user.id,
         field: "assignedTo",
@@ -970,6 +981,16 @@ const assignTask = async (req, res) => {
         entityId: String(task.id),
         metadata: { assignedTo: assignee.id },
       }, { transaction });
+      if (Number(assignee.id) !== Number(req.user.id)) {
+        await Notification.create({
+          userId: assignee.id,
+          type: "task_assigned",
+          title: "Task assigned to you",
+          message: `Task #${task.id} “${task.title}” was assigned to you.`,
+          link: `/dashboard?view=tasks&status=ALL&search=${encodeURIComponent(task.title)}`,
+          dedupeKey: `task:${task.id}:assignment:${assignmentHistory.id}`,
+        }, { transaction });
+      }
     });
     return res.status(200).json({ success: true, data: { task } });
   } catch (error) {

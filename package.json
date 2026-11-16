@@ -11,6 +11,7 @@
     "dev": "concurrently \"npm run start-backend\" \"npm run start-frontend\"",
     "db:migrate": "node src/scripts/migrate.js",
     "db:seed": "node src/scripts/seed.js",
+    "generate:vapid-keys": "node src/scripts/generate-vapid-keys.js",
     "test": "node --test"
   },
   "keywords": [
@@ -35,6 +36,8 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "sequelize": "^6.37.8",
+    "web-push": "^4.0.0",
+    "ws": "^8.23.0",
     "zod": "^4.6.5"
   },
   "devDependencies": {

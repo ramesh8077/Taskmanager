@@ -22,6 +22,15 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import API from "@/lib/axios";
 
+interface NotificationMessage {
+  id: number;
+  type: string;
+  title: string;
+  message: string;
+  link: string;
+  createdAt: string;
+}
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 interface User {
@@ -83,6 +92,110 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       mounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (loading || !user) return;
+
+    let stopped = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: number | undefined;
+    let reconnectDelay = 1000;
+    let lastNotificationId = 0;
+    const seenNotificationIds = new Set<number>();
+
+    const showNotification = (notification: NotificationMessage) => {
+      toast.custom((toastItem) => (
+        <button
+          type="button"
+          onClick={() => {
+            toast.dismiss(toastItem.id);
+            if (notification.link?.startsWith("/")) window.location.assign(notification.link);
+          }}
+          style={{
+            width: "min(380px, calc(100vw - 32px))",
+            padding: "14px 16px",
+            border: "1px solid var(--border-subtle)",
+            borderRadius: 12,
+            background: "var(--surface-card)",
+            color: "var(--text-primary)",
+            boxShadow: "0 12px 32px rgb(0 0 0 / 18%)",
+            textAlign: "left",
+            cursor: "pointer",
+          }}
+          aria-label={`${notification.title}: ${notification.message}. Click to open.`}
+        >
+          <strong style={{ display: "block", marginBottom: 4 }}>{notification.title}</strong>
+          <span style={{ color: "var(--text-secondary)", fontSize: 13 }}>{notification.message}</span>
+          <span style={{ display: "block", marginTop: 8, color: "var(--accent)", fontSize: 12 }}>Click to view</span>
+        </button>
+      ), { duration: 8000, position: "top-right" });
+    };
+
+    const handleNotification = (notification?: NotificationMessage) => {
+      const notificationId = Number(notification?.id);
+      if (!notification || !Number.isSafeInteger(notificationId) || notificationId < 1 || notificationId <= lastNotificationId || seenNotificationIds.has(notificationId)) return;
+      seenNotificationIds.add(notificationId);
+      lastNotificationId = Math.max(lastNotificationId, notificationId);
+      showNotification(notification);
+      window.dispatchEvent(new CustomEvent("taskmanager:notification", { detail: notification }));
+    };
+
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      const payload = event.data as { type?: string; notification?: NotificationMessage };
+      if (payload?.type === "push-notification") handleNotification(payload.notification);
+    };
+    navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage);
+
+    const connect = () => {
+      if (stopped) return;
+      try {
+        const apiUrl = new URL(API.defaults.baseURL || "/api", window.location.href);
+        const socketUrl = new URL(`${apiUrl.pathname.replace(/\/+$/, "")}/realtime/notifications`, apiUrl.origin);
+        socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+        socketUrl.searchParams.set("after", String(lastNotificationId));
+        socket = new WebSocket(socketUrl);
+        socket.onopen = () => { reconnectDelay = 1000; };
+        socket.onmessage = (event) => {
+          try {
+            const payload = JSON.parse(String(event.data)) as { type?: string; notification?: NotificationMessage };
+            if (payload.type === "notification") handleNotification(payload.notification);
+          } catch {
+            // Ignore malformed messages and keep the connection alive.
+          }
+        };
+        socket.onerror = () => socket?.close();
+        socket.onclose = () => {
+          if (stopped) return;
+          reconnectTimer = window.setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        };
+      } catch {
+        if (!stopped) {
+          reconnectTimer = window.setTimeout(connect, reconnectDelay);
+          reconnectDelay = Math.min(reconnectDelay * 2, 30000);
+        }
+      }
+    };
+
+    const start = async () => {
+      try {
+        const response = await API.get<{ data?: { notifications?: NotificationMessage[] } }>("/users/notifications");
+        const notifications = response.data.data?.notifications || [];
+        lastNotificationId = notifications.reduce((latest, item) => Math.max(latest, Number(item.id) || 0), 0);
+      } catch {
+        // The authenticated socket can still reconnect if the initial list request fails.
+      }
+      if (!stopped) connect();
+    };
+    void start();
+
+    return () => {
+      stopped = true;
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage);
+      socket?.close();
+    };
+  }, [loading, router, user?.id]);
 
   // Login
   const login = async ({
