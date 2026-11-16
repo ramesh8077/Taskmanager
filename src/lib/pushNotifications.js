@@ -1,25 +1,32 @@
-const webpush = require("web-push");
-
 let configured = false;
+let webPushModulePromise;
+
+function getWebPush() {
+  webPushModulePromise ||= import("web-push");
+  return webPushModulePromise;
+}
 
 function vapidPublicKey() {
   return process.env.VAPID_PUBLIC_KEY || "";
 }
 
-function configureWebPush() {
-  if (configured) return true;
+async function configureWebPush() {
+  if (configured) return getWebPush();
   const publicKey = process.env.VAPID_PUBLIC_KEY;
   const privateKey = process.env.VAPID_PRIVATE_KEY;
   const subject = process.env.VAPID_SUBJECT;
-  if (!publicKey || !privateKey || !subject) return false;
+  if (!publicKey || !privateKey || !subject) return null;
+  const webpush = await getWebPush();
   webpush.setVapidDetails(subject, publicKey, privateKey);
   configured = true;
-  return true;
+  return webpush;
 }
 
 async function sendPushForNotification(notification) {
+  let webpush;
   try {
-    if (!configureWebPush() || !["task_assigned", "ticket_assigned"].includes(notification.type)) return;
+    webpush = await configureWebPush();
+    if (!webpush || !["task_assigned", "ticket_assigned"].includes(notification.type)) return;
   } catch (error) {
     console.error("Browser push configuration is invalid:", error.message);
     return;
