@@ -56,11 +56,17 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
       const payload = jwt.verify(token, appConfig.JWT_SECRET);
       userId = Number(payload?.sub ?? payload?.id);
       if (!Number.isSafeInteger(userId) || userId < 1) throw new Error("Invalid user id");
-      await ensureDatabase();
-      const user = await db.User.findByPk(userId, { attributes: ["id", "status", "isActive"] });
-      if (!user || user.status !== "ACTIVE" || !user.isActive) throw new Error("Inactive user");
     } catch {
       return reject(socket, 401, "Unauthorized");
+    }
+
+    try {
+      await ensureDatabase();
+      const user = await db.User.findByPk(userId, { attributes: ["id", "status", "isActive"] });
+      if (!user || user.status !== "ACTIVE" || !user.isActive) return reject(socket, 401, "Unauthorized");
+    } catch (error) {
+      console.error("Realtime notification authentication failed:", error.message);
+      return reject(socket, 503, "Service Unavailable");
     }
 
     const requestedCursor = Number(url.searchParams.get("after"));

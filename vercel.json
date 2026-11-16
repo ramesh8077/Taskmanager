@@ -11,9 +11,20 @@
       "config": {
         "includeFiles": ["src/**/*.js", "shared/**/*.js"]
       }
+    },
+    {
+      "src": "api/realtime.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["src/**/*.js", "shared/**/*.js"]
+      }
     }
   ],
   "routes": [
+    {
+      "src": "^/api/realtime/notifications$",
+      "dest": "/api/realtime.js"
+    },
     {
       "src": "/api/(.*)",
       "dest": "/api/index.js"

@@ -14,7 +14,6 @@ require("mysql2");
 require("dotenv").config();
 
 const express = require("express");
-const { createServer } = require("http");
 
 const cors = require("cors");
 
@@ -36,7 +35,6 @@ const settingsRoutes = require("../src/routes/settingsRoutes");
 
 const db = require("../src/models");
 const apiResponse = require("../src/middlewares/apiResponse");
-const { attachRealtimeNotifications } = require("../src/lib/realtimeNotifications");
 
 // ─── Initialize Express App ─────────────────────────────────────────────────
 
@@ -166,7 +164,4 @@ app.use((error, req, res, next) => {
 
 // ─── Export for Vercel ──────────────────────────────────────────────────────
 
-const httpServer = createServer(app);
-attachRealtimeNotifications(httpServer, ensureDB);
-
-module.exports = httpServer;
+module.exports = app;
