@@ -73,7 +73,7 @@ const createTaskBody = z
     title: shortText(3, 200),
     description: z.string().trim().max(10000).optional().nullable(),
     dueDate: z.string().date(),
-    projectId: positiveId,
+    projectId: positiveId.optional().nullable(),
     assignedTo: positiveId,
     priority: z.enum(["Low", "Medium", "High", "Urgent"]).optional(),
   })

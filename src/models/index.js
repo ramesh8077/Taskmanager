@@ -89,7 +89,7 @@ db.Project.belongsTo(db.User, {
  * PROJECT ↔ TASK (One-to-Many)
  * 
  * - A Project can have many Tasks.
- * - Each Task belongs to exactly one Project.
+ * - A Task may optionally belong to a Project.
  * 
  * FK: tasks.project_id → projects.id
  */

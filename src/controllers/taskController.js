@@ -79,10 +79,10 @@ const createTask = async (req, res) => {
     const { title, description, dueDate, projectId, assignedTo, priority } = req.body;
 
     // ── Validate required fields ──────────────────────────────────────────
-    if (!title || !dueDate || !projectId || !assignedTo) {
+    if (!title || !dueDate || !assignedTo) {
       return res.status(400).json({
         success: false,
-        message: "Please provide title, dueDate, projectId, and assignedTo.",
+        message: "Please provide title, dueDate, and assignedTo.",
       });
     }
 
@@ -97,9 +97,9 @@ const createTask = async (req, res) => {
     }
 
     // ── Verify the project exists ─────────────────────────────────────────
-    const project = await Project.findByPk(projectId);
+    const project = projectId ? await Project.findByPk(projectId) : null;
 
-    if (!project) {
+    if (projectId && !project) {
       return res.status(404).json({
         success: false,
         message: `Project with ID ${projectId} not found.`,
@@ -127,10 +127,10 @@ const createTask = async (req, res) => {
         message: "You cannot assign tasks to this user.",
       });
     }
-    if (
+    if (project && (
       (!isManager(req.user) && project.department !== req.user.department) ||
       project.department !== assignee.department
-    ) {
+    )) {
       return res.status(403).json({ success: false, message: "The project and assignee must be within the same permitted department." });
     }
 
@@ -141,7 +141,7 @@ const createTask = async (req, res) => {
           title,
           description: description || null,
           dueDate,
-          projectId,
+          projectId: project?.id ?? null,
           assignedTo: assignee.id,
           assignedById: req.user.id,
           createdById: req.user.id,
@@ -194,7 +194,7 @@ const createTask = async (req, res) => {
         action: "task.created",
         entityType: "task",
         entityId: String(newTask.id),
-        metadata: { assignedTo: assignee.id, projectId },
+        metadata: { assignedTo: assignee.id, projectId: project?.id ?? null },
       }, { transaction });
       return Task.findByPk(newTask.id, {
         transaction,

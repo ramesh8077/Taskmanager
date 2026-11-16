@@ -1,7 +1,7 @@
 /**
  * Task Model
  * 
- * Represents a task within a project.
+ * Represents a task that may optionally belong to a project.
  * Each task belongs to a project and is assigned to a user (Member).
  */
 
@@ -98,12 +98,12 @@ module.exports = (sequelize) => {
       },
       projectId: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true,
         references: {
           model: "projects",
           key: "id",
         },
-        comment: "Foreign key referencing the project this task belongs to.",
+        comment: "Optional foreign key referencing the project this task belongs to.",
       },
       assignedTo: {
         type: DataTypes.INTEGER,

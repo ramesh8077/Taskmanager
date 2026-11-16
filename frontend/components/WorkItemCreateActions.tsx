@@ -125,7 +125,7 @@ export default function WorkItemCreateActions({
       await API.post("/tasks", {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
-        projectId: Number(formData.get("projectId")),
+        projectId: formData.get("projectId") ? Number(formData.get("projectId")) : null,
         assignedTo: Number(formData.get("assignedTo")),
         dueDate: String(formData.get("dueDate") || ""),
         priority: String(formData.get("priority") || "Medium"),
@@ -320,9 +320,9 @@ export default function WorkItemCreateActions({
                 </label>
                 <div className="work-item-dialog-grid">
                   <label>
-                    Project
-                    <select name="projectId" required defaultValue="">
-                      <option value="" disabled>Select a project</option>
+                    Project (optional)
+                    <select name="projectId" defaultValue="">
+                      <option value="">No project</option>
                       {scopedProjects.map((project) => <option key={project.id} value={project.id}>{project.title} · {project.department}</option>)}
                     </select>
                   </label>
@@ -352,11 +352,6 @@ export default function WorkItemCreateActions({
                     </select>
                   </label>
                 </div>
-                {scopedProjects.length === 0 && (
-                  <p className="work-item-dialog-hint">
-                    There are no projects available in your scope. Ask a Manager to create a project first.
-                  </p>
-                )}
                 {members.length === 0 && can(user, "task:assign") && (
                   <p className="work-item-dialog-hint">
                     There are no team members you can assign tasks to.
@@ -364,7 +359,7 @@ export default function WorkItemCreateActions({
                 )}
                 <div className="work-item-dialog-actions">
                   <button type="button" className="work-item-dialog-cancel" disabled={submitting} onClick={() => setDialog(null)}>Cancel</button>
-                  <button type="submit" className="work-item-create-button is-primary" disabled={submitting || scopedProjects.length === 0}>{submitting ? "Creating…" : "Create task"}</button>
+                  <button type="submit" className="work-item-create-button is-primary" disabled={submitting}>{submitting ? "Creating…" : "Create task"}</button>
                 </div>
               </form>
             )}
