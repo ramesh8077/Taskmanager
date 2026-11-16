@@ -16,9 +16,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Team Task Manager",
-  description:
-    "A production-grade team task management platform with role-based access control.",
+  title: "FLIPPRO Task Manager",
+  description: "FlipPro’s team task management workspace.",
   icons: {
     icon: "/icon.png",
   },
@@ -32,7 +31,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased dark`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased light`}
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-surface-primary text-foreground">

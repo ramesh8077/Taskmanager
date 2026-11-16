@@ -9,13 +9,26 @@
   --font-mono: var(--font-geist-mono);
 
   /* Brand Palette */
-  --color-brand-50: #edf3ff;
-  --color-brand-100: #dce8ff;
-  --color-brand-200: #bed2ff;
-  --color-brand-400: #83aaf5;
-  --color-brand-500: #5b8def;
-  --color-brand-600: #4778d6;
-  --color-brand-700: #3764bd;
+  --color-brand-50: #fff1ec;
+  --color-brand-100: #ffe0d5;
+  --color-brand-200: #ffc3ad;
+  --color-brand-400: #ff7856;
+  --color-brand-500: #f04422;
+  --color-brand-600: #d9381b;
+  --color-brand-700: #b92b15;
+
+  /* Existing primary UI accents now follow FlipPro's orange brand. */
+  --color-indigo-50: #fff1ec;
+  --color-indigo-100: #ffe0d5;
+  --color-indigo-200: #ffc3ad;
+  --color-indigo-300: #ffa48a;
+  --color-indigo-400: #ff7856;
+  --color-indigo-500: #f04422;
+  --color-indigo-600: #d9381b;
+  --color-indigo-700: #b92b15;
+  --color-indigo-800: #8f2412;
+  --color-indigo-900: #711d0e;
+  --color-indigo-950: #4e140b;
 
   /* Shared surface tokens */
   --color-surface-primary: var(--surface-primary);
@@ -1094,22 +1107,22 @@
 
 :root,
 html.light {
-  --background: #f3f7ff;
-  --foreground: #172033;
-  --surface-primary: #f3f7ff;
+  --background: #f6f5f3;
+  --foreground: #171717;
+  --surface-primary: #f6f5f3;
   --surface-card: #ffffff;
-  --surface-card-hover: #f8faff;
-  --surface-input: #f8faff;
+  --surface-card-hover: #faf8f6;
+  --surface-input: #faf9f7;
   --surface-input-focus: #ffffff;
-  --border-subtle: #e5eaf3;
-  --border-default: #d6deeb;
-  --sidebar-bg: #f8faff;
-  --accent: #5b8def;
+  --border-subtle: #e8e5e2;
+  --border-default: #d9d5d1;
+  --sidebar-bg: #ffffff;
+  --accent: #f04422;
 
-  --text-primary: #172033;
-  --text-secondary: #526176;
-  --text-muted: #64748b;
-  --text-label: #334155;
+  --text-primary: #171717;
+  --text-secondary: #57534e;
+  --text-muted: #78716c;
+  --text-label: #44403c;
 
   --nav-bg: rgba(255, 255, 255, 0.9);
   --modal-bg: #ffffff;
@@ -1118,9 +1131,9 @@ html.light {
   --scrollbar-thumb: rgba(71, 85, 105, 0.22);
   --scrollbar-thumb-hover: rgba(71, 85, 105, 0.36);
 
-  --card-text: #172033;
+  --card-text: #171717;
   --status-pending: #ad7c20;
-  --status-progress: #4778d6;
+  --status-progress: #d9482a;
   --status-done: #348363;
   --status-danger: #c64f54;
 }
@@ -1128,27 +1141,27 @@ html.light {
 /* ─── Optional Dark Theme ────────────────────────────────────────────────── */
 
 html.dark {
-  --background: #171a20;
-  --foreground: #e6e8eb;
-  --surface-primary: #171a20;
-  --surface-card: #1c2128;
-  --surface-card-hover: #232a33;
-  --surface-input: #181d24;
-  --surface-input-focus: #202630;
-  --border-subtle: #2a313b;
-  --border-default: #38414e;
-  --text-primary: #e6e8eb;
-  --text-secondary: #b0bac7;
-  --text-muted: #9aa4b2;
-  --text-label: #c8ced6;
-  --nav-bg: #171a20;
-  --modal-bg: #1c2128;
+  --background: #141414;
+  --foreground: #f2f0ee;
+  --surface-primary: #141414;
+  --surface-card: #1d1c1b;
+  --surface-card-hover: #292725;
+  --surface-input: #191817;
+  --surface-input-focus: #242220;
+  --border-subtle: #34312f;
+  --border-default: #48433f;
+  --text-primary: #f2f0ee;
+  --text-secondary: #c7c1bc;
+  --text-muted: #a49c95;
+  --text-label: #ded9d4;
+  --nav-bg: #141414;
+  --modal-bg: #1d1c1b;
   --overlay-bg: rgba(4, 7, 11, 0.68);
   --scrollbar-thumb: rgba(154, 164, 178, 0.3);
   --scrollbar-thumb-hover: rgba(154, 164, 178, 0.48);
-  --card-text: #e6e8eb;
-  --sidebar-bg: #171a20;
-  --accent: #5b8def;
+  --card-text: #f2f0ee;
+  --sidebar-bg: #191817;
+  --accent: #ff5733;
   --status-pending: #d5a649;
   --status-progress: #6d9ce5;
   --status-done: #5da98b;
@@ -1315,19 +1328,29 @@ html.dark select option {
 
 .dashboard-brand {
   display: flex;
-  min-height: 68px;
+  min-height: 82px;
   align-items: center;
-  gap: 12px;
-  padding: 0 18px;
+  justify-content: center;
+  padding: 7px 14px;
   border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-primary);
-  font-size: 15px;
-  font-weight: 650;
   text-decoration: none;
-  white-space: nowrap;
 }
 
-.dashboard-brand-mark,
+.dashboard-brand-logo-wrap {
+  position: relative;
+  display: block;
+  width: 174px;
+  height: 68px;
+  flex: 0 1 auto;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.dashboard-brand-logo {
+  object-fit: contain;
+}
+
 .dashboard-user-avatar,
 .dashboard-nav-icon {
   display: inline-flex;
@@ -1337,12 +1360,6 @@ html.dark select option {
   align-items: center;
   justify-content: center;
   border-radius: 8px;
-}
-
-.dashboard-brand-mark {
-  background: var(--accent, #5b8def);
-  color: white;
-  font-weight: 700;
 }
 
 .dashboard-sidebar-nav {
@@ -1373,8 +1390,8 @@ html.dark select option {
 }
 
 .dashboard-nav-link.is-active {
-  background: color-mix(in srgb, var(--accent, #5b8def) 18%, transparent);
-  color: var(--accent, #5b8def);
+  background: color-mix(in srgb, var(--accent, #f04422) 13%, transparent);
+  color: var(--accent, #f04422);
 }
 
 .dashboard-nav-icon {
@@ -1494,12 +1511,11 @@ html.dark select option {
   display: none;
 }
 
-.dashboard-sidebar.is-collapsed .dashboard-brand {
-  justify-content: center;
-  padding: 0;
+.dashboard-sidebar.is-collapsed .dashboard-brand-logo-wrap {
+  width: 48px;
+  height: 30px;
 }
 
-.dashboard-sidebar.is-collapsed .dashboard-brand-name,
 .dashboard-sidebar.is-collapsed .dashboard-nav-label,
 .dashboard-sidebar.is-collapsed .dashboard-user-info {
   display: none;
@@ -1546,12 +1562,11 @@ html.dark select option {
     width: 252px;
   }
 
-  .dashboard-sidebar.is-collapsed .dashboard-brand {
-    justify-content: flex-start;
-    padding: 0 18px;
+  .dashboard-sidebar.is-collapsed .dashboard-brand-logo-wrap {
+    width: 174px;
+    height: 68px;
   }
 
-  .dashboard-sidebar.is-collapsed .dashboard-brand-name,
   .dashboard-sidebar.is-collapsed .dashboard-nav-label,
   .dashboard-sidebar.is-collapsed .dashboard-user-info {
     display: initial;

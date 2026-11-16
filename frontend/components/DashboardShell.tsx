@@ -36,7 +36,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           >
             {collapsed ? "»" : "«"}
           </button>
-          <span className="dashboard-topbar-title">Workspace</span>
+          <span className="dashboard-topbar-title">Task Manager</span>
           <button
             type="button"
             className="dashboard-theme-button"

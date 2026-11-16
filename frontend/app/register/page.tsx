@@ -7,6 +7,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 import API from "@/lib/axios";
 
@@ -174,16 +175,12 @@ export default function RegisterPage() {
     <main className="min-h-screen flex items-center justify-center bg-surface-primary px-4 py-12">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 -right-40 w-[500px] h-[500px] bg-brand-500/8 rounded-full blur-[120px]" />
-        <div className="absolute -bottom-40 -left-40 w-[400px] h-[400px] bg-indigo-400/8 rounded-full blur-[100px]" />
+        <div className="absolute -bottom-40 -left-40 w-[400px] h-[400px] bg-brand-400/8 rounded-full blur-[100px]" />
       </div>
 
       <div className="relative w-full max-w-md animate-fade-in">
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 mb-4 shadow-lg shadow-brand-500/20">
-            <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
-            </svg>
-          </div>
+          <Image src="/flippro-logo.png" width={220} height={99} alt="FlipPro Services" className="mx-auto mb-4 h-auto w-52" priority />
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Create an account</h1>
           <p className="text-slate-600 mt-1 text-sm">Join Team Task Manager and start collaborating</p>
         </div>

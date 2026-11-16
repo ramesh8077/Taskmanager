@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { can } from "@/lib/rbac";
 import { navigationItems } from "@/lib/navConfig";
@@ -45,8 +46,16 @@ export default function Sidebar({
         className={`dashboard-sidebar${collapsed ? " is-collapsed" : ""}${mobileOpen ? " is-mobile-open" : ""}`}
       >
         <Link href="/dashboard" className="dashboard-brand" onClick={onClose}>
-          <span className="dashboard-brand-mark" aria-hidden="true">T</span>
-          <span className="dashboard-brand-name">Task Manager</span>
+          <span className="dashboard-brand-logo-wrap">
+            <Image
+              src="/flippro-logo.png"
+              alt="FlipPro Services"
+              fill
+              priority
+              sizes="174px"
+              className="dashboard-brand-logo"
+            />
+          </span>
         </Link>
 
         <nav className="dashboard-sidebar-nav">

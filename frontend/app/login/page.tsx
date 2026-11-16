@@ -7,6 +7,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import Image from "next/image";
 import { useAuth } from "@/context/AuthContext";
 
 export default function LoginPage() {
@@ -66,17 +67,13 @@ export default function LoginPage() {
       {/* Background orbs */}
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="absolute -top-40 -left-40 w-[500px] h-[500px] bg-brand-500/8 rounded-full blur-[120px]" />
-        <div className="absolute -bottom-40 -right-40 w-[400px] h-[400px] bg-indigo-400/8 rounded-full blur-[100px]" />
+        <div className="absolute -bottom-40 -right-40 w-[400px] h-[400px] bg-brand-400/8 rounded-full blur-[100px]" />
       </div>
 
       <div className="relative w-full max-w-md animate-fade-in">
         {/* Brand */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-700 mb-4 shadow-lg shadow-brand-500/20">
-            <svg className="w-7 h-7 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-            </svg>
-          </div>
+          <Image src="/flippro-logo.png" width={220} height={99} alt="FlipPro Services" className="mx-auto mb-4 h-auto w-52" priority />
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Welcome back</h1>
           <p className="text-slate-600 mt-1 text-sm">Sign in to your Team Task Manager account</p>
         </div>
