@@ -88,14 +88,13 @@ function ensureDB() {
           "202611120001-employee-task-create-permission.js",
           "202611160002-push-subscriptions.js",
           "202611170001-meetings.js",
+          "202611170002-work-item-start-dates.js",
         ];
-        if (
-          requiredMigrations.some(
-            (migration) =>
-              !migrationRows.some((row) => row.migration_name === migration)
-          )
-        ) {
-          throw new Error("Database migrations are missing.");
+        const missingMigrations = requiredMigrations.filter(
+          (migration) => !migrationRows.some((row) => row.migration_name === migration)
+        );
+        if (missingMigrations.length) {
+          throw new Error(`Database migrations are missing: ${missingMigrations.join(", ")}`);
         }
         console.log("✅ DB connected and migrations checked on Vercel");
       })
