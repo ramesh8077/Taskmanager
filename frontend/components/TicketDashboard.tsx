@@ -971,7 +971,7 @@ export default function TicketDashboard() {
                 </label>
                 <label className="block text-xs font-bold">Assign to
                   <select disabled={!canAssignTickets} className={`${inputClass} mt-1.5`} value={createForm.assignedTo} onChange={(event) => setCreateForm((current) => ({ ...current, assignedTo: event.target.value }))}>
-                    <option value="">Unassigned</option>{members.filter((member) => user?.position === "MANAGER" ? !createForm.department || member.department === createForm.department : member.department === user?.department).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                    <option value="">Unassigned</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.department}</option>)}
                   </select>
                 </label>
                 <div className="grid grid-cols-2 gap-3"><label className="block text-xs font-bold">From date (optional)

@@ -308,7 +308,7 @@ async function assignTicket(req, res) {
         await notifyUsers([assignee.id], {
           type: "ticket_assigned",
           title: "Ticket assigned to you",
-          message: `Ticket #${ticket.id} “${ticket.title}” was assigned to you.`,
+          message: `Ticket #${ticket.id} “${ticket.title}” was assigned to you by ${req.user.name}.`,
           link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
           dedupeKey: `ticket:${ticket.id}:assigned:${ticket.updatedAt?.getTime() || Date.now()}`,
         }, transaction);
@@ -530,7 +530,7 @@ async function resolveLegacyTicket(req, res) {
         await notifyUsers([assignee.id], {
           type: "ticket_assigned",
           title: "Ticket assigned to you",
-          message: `Ticket #${ticket.id} “${ticket.title}” was assigned to you.`,
+          message: `Ticket #${ticket.id} “${ticket.title}” was assigned to you by ${req.user.name}.`,
           link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
           dedupeKey: `ticket:${ticket.id}:legacy-resolve-assignment:${Date.now()}`,
         }, transaction);

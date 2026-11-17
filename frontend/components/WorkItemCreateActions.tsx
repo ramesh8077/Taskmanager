@@ -336,7 +336,7 @@ export default function WorkItemCreateActions({
                     <select name="assignedTo" defaultValue="">
                         <option value="">Unassigned</option>
                       {loadingMembers && <option disabled>Loading team members…</option>}
-                        {members.filter((member) => user?.position === "MANAGER" ? true : member.department === user?.department).map((member) => (
+                        {members.map((member) => (
                           <option key={member.id} value={member.id}>
                             {member.name} · {member.department} · {member.position.replaceAll("_", " ")}
                           </option>

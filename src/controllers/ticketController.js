@@ -48,13 +48,12 @@ const createTicket = async (req, res) => {
       assigneeName = assignee.name;
       assigneeDepartment = assignee.department;
     }
-    if (!isManager(req.user) && assigneeDepartment && assigneeDepartment !== req.user.department) {
-      return res.status(400).json({ success: false, message: "You can only assign a new ticket to a member in your department." });
-    }
     if (!isManager(req.user) && department && department !== req.user.department) {
       return res.status(403).json({ success: false, message: "You can only create tickets in your own department." });
     }
-    const ticketDepartment = assigneeDepartment || (isManager(req.user) ? department : req.user.department);
+    const ticketDepartment = isManager(req.user)
+      ? department || assigneeDepartment
+      : req.user.department;
     if (!ticketDepartment) {
       return res.status(400).json({ success: false, message: "Select a department when creating an unassigned ticket." });
     }
@@ -157,7 +156,7 @@ const createTicket = async (req, res) => {
           userId: assigneeId,
           type: "ticket_assigned",
           title: "Ticket assigned to you",
-          message: `Ticket #${createdTicket.id} “${createdTicket.title}” was assigned to you.`,
+          message: `Ticket #${createdTicket.id} “${createdTicket.title}” was assigned to you by ${req.user.name}.`,
           link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(createdTicket.title)}`,
           dedupeKey: `ticket:${createdTicket.id}:created-assignment`,
         });
