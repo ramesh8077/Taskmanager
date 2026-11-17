@@ -1,5 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
+const { randomUUID } = require("node:crypto");
 const { Op } = require("sequelize");
 const db = require("../models");
 const { can } = require("../lib/rbac");
@@ -670,7 +671,7 @@ async function addComment(req, res) {
         imageFileName: req.file?.originalname?.split(/[\\/]/).pop()?.replace(/[\r\n\0]/g, "_").slice(0, 255) || null,
       }, { transaction });
       await recordHistory(ticket, req.user.id, "comment", null, comment.slice(0, 255), "commented", transaction);
-      await notifyUsers([ticket.createdBy, ticket.assignedTo].filter((userId) => Number(userId) !== Number(req.user.id)), {
+      await notifyUsers([ticket.assignedTo].filter((userId) => Number(userId) !== Number(req.user.id)), {
         type: "ticket_comment",
         title: "New ticket comment",
         message: `A new comment was added to ticket #${ticket.id} “${ticket.title}”.`,
@@ -713,8 +714,7 @@ async function getTicketCommentImage(req, res) {
 }
 
 const isServerless = Boolean(process.env.VERCEL) || process.env.NODE_ENV === "production";
-// Serverless /tmp storage is temporary and is not shared between requests or deployments.
-// Production should use persistent cloud storage such as Cloudinary, S3, or Vercel Blob.
+// Retained for downloads of legacy attachments created before file bytes were stored in the database.
 const attachmentStorage = isServerless
   ? path.join("/tmp", "ticket-attachments")
   : path.resolve(process.env.TICKET_ATTACHMENT_DIR || path.join(process.cwd(), "storage", "ticket-attachments"));
@@ -729,17 +729,14 @@ function isPlainTextFile(buffer) {
 }
 
 async function uploadAttachment(req, res) {
-  let storagePath;
   try {
     const { id } = req.validatedParams || req.params;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) {
-      if (req.file) fs.promises.unlink(req.file.path).catch((error) => console.error("Unable to remove unauthorized ticket upload:", error.message));
       return res.status(404).json({ success: false, message: "Ticket not found." });
     }
     if (!req.file) return res.status(400).json({ success: false, message: "Choose a supported attachment under 8 MB." });
-    storagePath = req.file.path;
-    const sample = await fs.promises.readFile(storagePath);
+    const sample = req.file.buffer;
     const signatures = {
       "image/jpeg": sample[0] === 0xff && sample[1] === 0xd8 && sample[2] === 0xff,
       "image/png": sample.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
@@ -749,7 +746,6 @@ async function uploadAttachment(req, res) {
       "text/plain": isPlainTextFile(sample),
     };
     if (!signatures[req.file.mimetype]) {
-      await fs.promises.unlink(storagePath);
       return res.status(400).json({ success: false, message: "The file contents do not match a supported file type." });
     }
     const fileName = path.basename(req.file.originalname.replace(/[\\/]/g, path.sep)).replace(/[\r\n"]/g, "_").slice(0, 255);
@@ -758,9 +754,10 @@ async function uploadAttachment(req, res) {
         ticketId: ticket.id,
         uploadedBy: req.user.id,
         fileName,
-        storageName: req.file.filename,
+        storageName: randomUUID(),
         mimeType: req.file.mimetype,
         fileSize: req.file.size,
+        imageData: req.file.buffer,
       }, { transaction });
       await recordHistory(ticket, req.user.id, "attachment", null, created.fileName, "attached", transaction);
       await notifyUsers([ticket.createdBy, ticket.assignedTo].filter((userId) => Number(userId) !== Number(req.user.id)), {
@@ -768,14 +765,13 @@ async function uploadAttachment(req, res) {
         title: "Ticket attachment added",
         message: `A file was attached to ticket #${ticket.id} “${ticket.title}”.`,
         link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
-        dedupeKey: `ticket:${ticket.id}:attachment:${attachment.id}`,
+        dedupeKey: `ticket:${ticket.id}:attachment:${created.id}`,
       }, transaction);
       return created;
     });
-    const { storageName, ...publicAttachment } = attachment.get({ plain: true });
+    const { storageName, imageData, ...publicAttachment } = attachment.get({ plain: true });
     return res.status(201).json({ success: true, data: { attachment: publicAttachment } });
   } catch (error) {
-    if (storagePath) fs.promises.unlink(storagePath).catch((unlinkError) => console.error("Unable to remove failed ticket upload:", unlinkError.message));
     console.error("❌ Upload Ticket Attachment Error:", error);
     return res.status(500).json({ success: false, message: "Internal server error while uploading the attachment." });
   }
@@ -790,6 +786,13 @@ async function downloadAttachment(req, res) {
       include: [{ model: Ticket, as: "ticket", where, required: true, include: [{ model: User, as: "assignee", attributes: ["id"], required: false }] }],
     });
     if (!attachment) return res.status(404).json({ success: false, message: "Attachment not found." });
+    if (attachment.imageData) {
+      res.setHeader("Content-Type", attachment.mimeType);
+      res.setHeader("Content-Length", attachment.fileSize);
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("Cache-Control", "private, no-store");
+      return res.send(attachment.imageData);
+    }
     const filePath = path.join(attachmentStorage, path.basename(attachment.storageName));
     if (!fs.existsSync(filePath)) return res.status(404).json({ success: false, message: "Attachment file is unavailable." });
     res.setHeader("Content-Type", attachment.mimeType);

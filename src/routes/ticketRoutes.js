@@ -5,9 +5,6 @@ const workflowController = require("../controllers/ticketWorkflowController");
 const { verifyToken, requirePermission } = require("../middlewares/authMiddleware");
 const { validateRequest } = require("../middlewares/validate");
 const multer = require("multer");
-const fs = require("node:fs");
-const path = require("node:path");
-const { randomUUID } = require("node:crypto");
 const { receiveCommentImage } = require("../lib/commentImageUpload");
 const {
   attachmentParams,
@@ -28,11 +25,6 @@ const {
   ticketQuery,
 } = require("../validators/schemas");
 
-const uploadDir = workflowController.attachmentStorage;
-
-// Ensure the upload directory exists
-
-
 const allowedFiles = new Map([
   ["image/jpeg", ".jpg"],
   ["image/png", ".png"],
@@ -41,34 +33,8 @@ const allowedFiles = new Map([
   ["application/pdf", ".pdf"],
   ["text/plain", ".txt"],
 ]);
-// const upload = multer({
-//   storage: multer.diskStorage({
-//     destination: uploadDir,
-//     filename: (_req, file, callback) => callback(null, `${randomUUID()}${allowedFiles.get(file.mimetype) || ""}`),
-//   }),
-//   limits: { fileSize: 8 * 1024 * 1024, files: 1 },
-//   fileFilter: (_req, file, callback) => {
-//     if (!allowedFiles.has(file.mimetype)) {
-//       return callback(new Error("Unsupported file type. Upload a JPG, PNG, GIF, WebP, PDF, or plain text file."));
-//     }
-//     return callback(null, true);
-//   },
-// });
-
 const upload = multer({
-  storage: multer.diskStorage({
-    destination: (_req, _file, callback) => {
-      fs.mkdir(uploadDir, { recursive: true }, (error) => {
-        callback(error, uploadDir);
-      });
-    },
-    filename: (_req, file, callback) => {
-      callback(
-        null,
-        `${randomUUID()}${allowedFiles.get(file.mimetype) || ""}`
-      );
-    },
-  }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 8 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) => {
     if (!allowedFiles.has(file.mimetype)) {

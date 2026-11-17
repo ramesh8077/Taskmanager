@@ -70,9 +70,22 @@ export default function WorkItemCreateActions({
   const [taskEndDate, setTaskEndDate] = useState("");
   const [ticketStartDate, setTicketStartDate] = useState("");
   const [ticketEndDate, setTicketEndDate] = useState("");
+  const [ticketScreenshot, setTicketScreenshot] = useState<File | null>(null);
+  const [ticketScreenshotPreview, setTicketScreenshotPreview] = useState("");
+  const [ticketCreatedId, setTicketCreatedId] = useState<number | null>(null);
   const durationDays = (from: string, to: string) => from && to && from <= to
     ? Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1
     : 0;
+
+  useEffect(() => {
+    if (!ticketScreenshot) {
+      setTicketScreenshotPreview("");
+      return;
+    }
+    const url = URL.createObjectURL(ticketScreenshot);
+    setTicketScreenshotPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [ticketScreenshot]);
 
   const scopedProjects = projects.filter((project) => project.department);
   const canCreateTask = can(user, "task:create");
@@ -90,6 +103,8 @@ export default function WorkItemCreateActions({
   function openTicketDialog() {
     setDialog("ticket");
     setError("");
+    setTicketCreatedId(null);
+    setTicketScreenshot(null);
   }
 
   useEffect(() => {
@@ -187,31 +202,49 @@ export default function WorkItemCreateActions({
   async function submitTicket(formData: FormData) {
     setError("");
     setSubmitting(true);
+    let createdTicketId: number | null = null;
     try {
       const assignedTo = formData.get("assignedTo");
       const deadline = String(formData.get("deadline") || "");
       const startDate = String(formData.get("startDate") || "");
       if (startDate && !deadline) throw new Error("Select a To date when you set a From date.");
       if (startDate && deadline && startDate > deadline) throw new Error("From date must be on or before To date.");
-      await API.post("/tickets", {
+      const response = await API.post<ApiEnvelope<{ ticket: { id: number } }>>("/tickets", {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
         priority: String(formData.get("priority") || "P2"),
         ...(user?.position === "MANAGER" && formData.get("department")
           ? { department: String(formData.get("department")) }
           : {}),
-        ...(user?.position === "INTERN"
+        ...(!ticketScreenshot && user?.position === "INTERN"
           ? { assignedTo: user.id }
-          : assignedTo
+          : !ticketScreenshot && assignedTo
             ? { assignedTo: Number(assignedTo) }
             : {}),
         ...(deadline ? { deadline } : {}),
         ...(startDate ? { startDate } : {}),
       });
+      createdTicketId = response.data.data.ticket.id;
+      if (ticketScreenshot) {
+        const attachment = new FormData();
+        attachment.append("file", ticketScreenshot);
+        await API.post(`/tickets/${createdTicketId}/attachments`, attachment, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        if (assignedTo && Number(assignedTo) !== user?.id) {
+          await API.put(`/tickets/${createdTicketId}/assignee`, { assignedTo: Number(assignedTo) });
+        }
+      }
       setDialog(null);
+      setTicketScreenshot(null);
       window.location.reload();
     } catch (requestError) {
-      setError(getErrorMessage(requestError));
+      if (createdTicketId) {
+        setTicketCreatedId(createdTicketId);
+        setError(`Ticket #${createdTicketId} was created, but its screenshot or assignment could not be saved. Open the ticket to finish it.`);
+      } else {
+        setError(getErrorMessage(requestError));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -300,8 +333,30 @@ export default function WorkItemCreateActions({
                   <button type="submit" className="work-item-create-button is-primary" disabled={submitting}>{submitting ? "Creating…" : "Create project"}</button>
                 </div>
               </form>
+            ) : dialog === "ticket" && ticketCreatedId ? (
+              <div className="work-item-dialog-form">
+                <p className="work-item-dialog-hint">Ticket #{ticketCreatedId} was created. You can open it from the ticket list to add the screenshot or finish assignment.</p>
+                <div className="work-item-dialog-actions">
+                  <button type="button" className="work-item-create-button is-primary" onClick={() => { setDialog(null); window.location.reload(); }}>Done</button>
+                </div>
+              </div>
             ) : dialog === "ticket" ? (
-              <form action={(formData) => void submitTicket(formData)} className="work-item-dialog-form">
+              <form action={(formData) => void submitTicket(formData)} onPaste={(event) => {
+                const item = Array.from(event.clipboardData.items).find((entry) => entry.type.startsWith("image/"));
+                const image = item?.getAsFile();
+                if (!image) return;
+                event.preventDefault();
+                const extension = image.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
+                const file = new File([image], `ticket-screenshot.${extension}`, { type: image.type });
+                if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
+                  setError("Choose a JPG, PNG, GIF, or WebP image.");
+                } else if (file.size > 8 * 1024 * 1024) {
+                  setError("Screenshot must be 8 MB or smaller.");
+                } else {
+                  setError("");
+                  setTicketScreenshot(file);
+                }
+              }} className="work-item-dialog-form">
                 <label>
                   Ticket title
                   <input name="title" minLength={3} maxLength={200} required />
@@ -355,6 +410,23 @@ export default function WorkItemCreateActions({
                     </label>
                   )}
                 </div>
+                <label>
+                  Screenshot image (choose a file or paste with Ctrl+V)
+                  <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (!file) return;
+                    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
+                      setError("Choose a JPG, PNG, GIF, or WebP image.");
+                    } else if (file.size > 8 * 1024 * 1024) {
+                      setError("Screenshot must be 8 MB or smaller.");
+                    } else {
+                      setError("");
+                      setTicketScreenshot(file);
+                    }
+                    event.currentTarget.value = "";
+                  }} />
+                  {ticketScreenshotPreview && <span className="mt-2 flex items-start gap-3"><img src={ticketScreenshotPreview} alt="Screenshot preview" className="max-h-40 max-w-full rounded-lg border object-contain" /><button type="button" className="work-item-dialog-cancel" onClick={() => setTicketScreenshot(null)}>Remove</button></span>}
+                </label>
                 <div className="work-item-dialog-actions">
                   <button type="button" className="work-item-dialog-cancel" disabled={submitting} onClick={() => setDialog(null)}>Cancel</button>
                   <button type="submit" className="work-item-create-button is-primary" disabled={submitting}>{submitting ? "Creating…" : "Create ticket"}</button>

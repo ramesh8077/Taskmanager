@@ -223,6 +223,8 @@ export default function TicketDashboard() {
   const listRequestId = useRef(0);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [ticketScreenshot, setTicketScreenshot] = useState<File | null>(null);
+  const [ticketScreenshotPreview, setTicketScreenshotPreview] = useState("");
   const [viewTicket, setViewTicket] = useState<Ticket | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailTab, setDetailTab] = useState<DetailTab>("details");
@@ -484,6 +486,7 @@ export default function TicketDashboard() {
       return;
     }
     setSubmitting(true);
+    let createdTicketId: number | null = null;
     try {
       const body = {
         title: createForm.title.trim(),
@@ -491,15 +494,27 @@ export default function TicketDashboard() {
         screenshotUrl: createForm.screenshotUrl.trim() || undefined,
         priority: createForm.priority,
         department: createForm.department.trim(),
-        assignedTo: createForm.assignedTo ? Number(createForm.assignedTo) : null,
+        ...(!ticketScreenshot ? { assignedTo: createForm.assignedTo ? Number(createForm.assignedTo) : null } : {}),
         startDate: createForm.startDate || undefined,
         deadline: createForm.deadline || undefined,
         projectId: createForm.projectId ? Number(createForm.projectId) : undefined,
         taskId: createForm.taskId ? Number(createForm.taskId) : undefined,
       };
-      await API.post("/tickets", body);
+      const created = await API.post<ApiEnvelope<{ ticket: Ticket }>>("/tickets", body);
+      createdTicketId = created.data.data.ticket.id;
+      if (ticketScreenshot) {
+        const formData = new FormData();
+        formData.append("file", ticketScreenshot);
+        await API.post(`/tickets/${createdTicketId}/attachments`, formData, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        if (createForm.assignedTo) {
+          await API.put(`/tickets/${createdTicketId}/assignee`, { assignedTo: Number(createForm.assignedTo) });
+        }
+      }
       toast.success("Ticket created.");
       setShowCreateModal(false);
+      setTicketScreenshot(null);
       setCreateForm({
         title: "",
         description: "",
@@ -515,11 +530,49 @@ export default function TicketDashboard() {
       await fetchTickets();
       await fetchNotifications();
     } catch (error: unknown) {
-      toast.error(errorMessage(error, "Could not create ticket."));
+      if (createdTicketId) {
+        toast.error(`Ticket #${createdTicketId} was created, but its screenshot or assignment could not be saved. Open the ticket to finish it.`);
+        setShowCreateModal(false);
+        await fetchTickets();
+      } else {
+        toast.error(errorMessage(error, "Could not create ticket."));
+      }
     } finally {
       setSubmitting(false);
     }
   };
+
+  const selectTicketScreenshot = (file?: File) => {
+    if (!file) return;
+    if (!["image/jpeg", "image/png", "image/gif", "image/webp"].includes(file.type)) {
+      toast.error("Choose a JPG, PNG, GIF, or WebP image.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Screenshot must be 8 MB or smaller.");
+      return;
+    }
+    setTicketScreenshot(file);
+  };
+
+  const pasteTicketScreenshot = (event: React.ClipboardEvent<HTMLFormElement>) => {
+    const image = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"));
+    const file = image?.getAsFile();
+    if (!file) return;
+    event.preventDefault();
+    const extension = file.type.split("/")[1]?.replace("jpeg", "jpg") || "png";
+    selectTicketScreenshot(new File([file], `ticket-screenshot.${extension}`, { type: file.type }));
+  };
+
+  useEffect(() => {
+    if (!ticketScreenshot) {
+      setTicketScreenshotPreview("");
+      return;
+    }
+    const url = URL.createObjectURL(ticketScreenshot);
+    setTicketScreenshotPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [ticketScreenshot]);
 
   const handleAddComment = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -942,13 +995,13 @@ export default function TicketDashboard() {
       </div>
 
       {showCreateModal && can("ticket:create") && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowCreateModal(false); }}>
+        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4" onMouseDown={(event) => { if (event.target === event.currentTarget) { setShowCreateModal(false); setTicketScreenshot(null); } }}>
           <div className={`my-auto max-h-[95vh] w-full max-w-2xl overflow-y-auto rounded-3xl border p-5 shadow-2xl sm:p-7 ${panelClass}`}>
             <div className="mb-5 flex items-start justify-between gap-3">
               <div><h2 className="text-xl font-black">Create ticket</h2><p className={`mt-1 text-sm ${mutedClass}`}>Provide the issue details and optionally link project work.</p></div>
-              <button type="button" aria-label="Close" onClick={() => setShowCreateModal(false)} className={buttonClass}>✕</button>
+              <button type="button" aria-label="Close" onClick={() => { setShowCreateModal(false); setTicketScreenshot(null); }} className={buttonClass}>✕</button>
             </div>
-            <form onSubmit={handleCreateTicket} className="space-y-4">
+            <form onSubmit={handleCreateTicket} onPaste={pasteTicketScreenshot} className="space-y-4">
               <label className="block text-xs font-bold">Title *
                 <input required className={`${inputClass} mt-1.5`} value={createForm.title} onChange={(event) => setCreateForm((current) => ({ ...current, title: event.target.value }))} />
               </label>
@@ -982,6 +1035,10 @@ export default function TicketDashboard() {
                 <label className="block text-xs font-bold">Screenshot URL
                   <input type="url" className={`${inputClass} mt-1.5`} value={createForm.screenshotUrl} onChange={(event) => setCreateForm((current) => ({ ...current, screenshotUrl: event.target.value }))} placeholder="https://" />
                 </label>
+                <div className="text-xs font-bold">Screenshot image <span className={`font-normal ${mutedClass}`}>(choose a file or paste with Ctrl+V)</span>
+                  <input type="file" accept="image/jpeg,image/png,image/gif,image/webp" className={`${inputClass} mt-1.5`} onChange={(event) => selectTicketScreenshot(event.target.files?.[0])} />
+                  {ticketScreenshotPreview && <div className="mt-2 flex items-start gap-3"><img src={ticketScreenshotPreview} alt="Screenshot preview" className="max-h-40 max-w-full rounded-lg border border-slate-500 object-contain" /><button type="button" className={buttonClass} onClick={() => setTicketScreenshot(null)}>Remove</button></div>}
+                </div>
                 <label className="block text-xs font-bold">Project (optional)
                   <select className={`${inputClass} mt-1.5`} value={createForm.projectId} onChange={(event) => setCreateForm((current) => ({ ...current, projectId: event.target.value, taskId: "" }))}>
                     <option value="">No project</option>{projects.map((project) => <option key={project.id} value={project.id}>{project.name || project.title || `Project ${project.id}`}</option>)}
@@ -994,7 +1051,7 @@ export default function TicketDashboard() {
                 </label>
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" className={buttonClass} onClick={() => setShowCreateModal(false)}>Cancel</button>
+                <button type="button" className={buttonClass} onClick={() => { setShowCreateModal(false); setTicketScreenshot(null); }}>Cancel</button>
                 <button type="submit" disabled={submitting} className="rounded-xl bg-brand-600 px-5 py-2.5 text-sm font-bold text-white disabled:opacity-50">{submitting ? "Creating…" : "Create ticket"}</button>
               </div>
             </form>

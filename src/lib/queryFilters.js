@@ -232,15 +232,19 @@ async function buildTaskQuery({ actor, User, DeadlineHistory, filters = {} }) {
 
 async function buildTicketScope({ actor, User }) {
   const visibleIds = await visibleUserIds(User, actor);
-  const where = isManager(actor)
-    ? {}
-    : {
-      [Op.or]: [
-        { [Op.and]: [{ createdBy: actor?.id || -1 }, { department: actor.department }] },
-        { assignedTo: actor?.id || -1 },
-        { [Op.and]: [{ assignedTo: { [Op.in]: visibleIds } }, { department: actor.department }] },
-      ],
-    };
+  const unassignedVisibility = isManager(actor)
+    ? [{ assignedTo: null }]
+    : [{ [Op.and]: [
+      { createdBy: actor?.id || -1 },
+      { assignedTo: null },
+      { department: actor.department },
+    ] }];
+  const where = {
+    [Op.or]: [
+      { assignedTo: actor?.id || -1 },
+      ...unassignedVisibility,
+    ],
+  };
   return { where, visibleIds };
 }
 

@@ -127,6 +127,7 @@ const startServer = async () => {
       "202611030001-work-items-dashboard-indexes.js",
       "202611160002-push-subscriptions.js",
       "202611170001-meetings.js",
+      "202611170003-ticket-attachment-blobs.js",
     ];
     const missingMigrations = requiredMigrations.filter(
       (migration) => !migrationRows.some((row) => row.migration_name === migration)

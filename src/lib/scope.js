@@ -29,20 +29,18 @@ function scopedProjectQuery(user) {
 
 function scopedTicketQuery(user) {
   const role = normalizedRole(user?.role);
-  if (role === "SUPER_ADMIN") return {};
-  if (role === "ADMIN" || role === "MANAGER") {
+  if (role === "SUPER_ADMIN" || role === "ADMIN" || role === "MANAGER") {
     return {
       [Op.or]: [
-        { createdBy: user.id },
         { assignedTo: user.id },
-        where(col("assignee.created_by_id"), user.id),
+        { assignedTo: null },
       ],
     };
   }
   return {
     [Op.or]: [
-      { [Op.and]: [{ createdBy: user.id }, { department: user.department }] },
       { assignedTo: user.id },
+      { [Op.and]: [{ createdBy: user.id }, { assignedTo: null }, { department: user.department }] },
     ],
   };
 }

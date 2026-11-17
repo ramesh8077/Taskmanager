@@ -88,6 +88,7 @@ function ensureDB() {
           "202611120001-employee-task-create-permission.js",
           "202611160002-push-subscriptions.js",
           "202611170001-meetings.js",
+          "202611170003-ticket-attachment-blobs.js",
         ];
         if (
           requiredMigrations.some(

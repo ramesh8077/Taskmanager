@@ -19,6 +19,7 @@ module.exports = (sequelize) =>
       storageName: { type: DataTypes.STRING(100), allowNull: false, unique: true },
       mimeType: { type: DataTypes.STRING(100), allowNull: false },
       fileSize: { type: DataTypes.INTEGER, allowNull: false },
+      imageData: { type: DataTypes.BLOB("long"), allowNull: true },
     },
     { tableName: "ticket_attachments", timestamps: true, underscored: true }
   );
