@@ -73,11 +73,15 @@ const createTaskBody = z
     title: shortText(3, 200),
     description: z.string().trim().max(10000).optional().nullable(),
     dueDate: z.string().date(),
+    startDate: z.string().date().optional().nullable(),
     projectId: positiveId.optional().nullable(),
     assignedTo: positiveId,
     priority: z.enum(["Low", "Medium", "High", "Urgent"]).optional(),
   })
-  .strict();
+  .strict()
+  .refine((body) => !body.startDate || body.startDate <= body.dueDate, {
+    message: "startDate must be on or before dueDate.", path: ["startDate"],
+  });
 
 const taskStatusBody = z
   .object({
@@ -207,13 +211,17 @@ const updateTaskBody = z.object({
   description: z.string().trim().max(10000).nullable().optional(),
   priority: z.enum(["Low", "Medium", "High", "Urgent"]).optional(),
   dueDate: z.string().date().optional(),
+  startDate: z.string().date().nullable().optional(),
   reason: shortText(1, 2000).optional(),
 }).strict().refine(
   (body) => Object.keys(body).some((key) => key !== "reason"),
   { message: "Provide at least one task field to update." }
 ).refine(
-  (body) => !Object.hasOwn(body, "dueDate") || !!body.reason,
+  (body) => (!Object.hasOwn(body, "dueDate") && !Object.hasOwn(body, "startDate")) || !!body.reason,
   { message: "A reason is required when changing the deadline.", path: ["reason"] }
+).refine(
+  (body) => !body.startDate || !body.dueDate || body.startDate <= body.dueDate,
+  { message: "startDate must be on or before dueDate.", path: ["startDate"] }
 );
 
 const idParams = z.object({ id: positiveId }).strict();
@@ -234,10 +242,14 @@ const createTicketBody = z
     department: z.enum(DEPARTMENTS).optional(),
     assignedTo: positiveId.optional().nullable(),
     deadline: z.string().date().optional().nullable(),
+    startDate: z.string().date().optional().nullable(),
     projectId: positiveId.optional().nullable(),
     taskId: positiveId.optional().nullable(),
   })
-  .strict();
+  .strict()
+  .refine((body) => !body.startDate || (!!body.deadline && body.startDate <= body.deadline), {
+    message: "startDate must be on or before deadline.", path: ["startDate"],
+  });
 
 const resolveTicketBody = z
   .object({
@@ -261,8 +273,11 @@ const ticketStatusBody = z.object({
 const ticketAssignmentBody = z.object({ assignedTo: positiveId.nullable() }).strict();
 const ticketDeadlineBody = z.object({
   deadline: z.string().date(),
+  startDate: z.string().date().nullable().optional(),
   reason: shortText(1, 2000),
-}).strict();
+}).strict().refine((body) => !body.startDate || body.startDate <= body.deadline, {
+  message: "startDate must be on or before deadline.", path: ["startDate"],
+});
 const ticketPriorityBody = z.object({
   priority: z.enum(["P0", "P1", "P2", "LOW", "MEDIUM", "HIGH", "URGENT"]),
 }).strict();
@@ -329,6 +344,20 @@ const workItemListQuery = z
     { message: "createdFrom must be before or equal to createdTo.", path: ["createdFrom"] },
   );
 
+const createMeetingBody = z
+  .object({
+    title: shortText(3, 160),
+    agenda: z.string().trim().max(10000).optional().nullable(),
+    scheduledAt: z.string().datetime({ offset: true }),
+    durationMinutes: z.number().int().min(15).max(360),
+    attendeeIds: z.array(positiveId).max(24).default([]),
+  })
+  .strict()
+  .refine(
+    (body) => new Date(body.scheduledAt).getTime() > Date.now(),
+    { message: "Meeting start time must be in the future.", path: ["scheduledAt"] },
+  );
+
 module.exports = {
   loginBody,
   registerBody,
@@ -366,4 +395,5 @@ module.exports = {
   reopenTicketBody,
   ticketQuery,
   workItemListQuery,
+  createMeetingBody,
 };

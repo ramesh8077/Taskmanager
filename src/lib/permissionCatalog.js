@@ -17,7 +17,7 @@ const permissionDescriptions = {
   "task:update:any": "Update any task.",
   "task:update:own": "Update tasks within the user's scope.",
   "ticket:create": "Create tickets.",
-  "ticket:assign": "Assign tickets to eligible users.",
+  "ticket:assign": "Assign tickets to any active member.",
   "ticket:view:any": "View all tickets.",
   "ticket:view:own": "View tickets within the user's scope.",
   "ticket:update:any": "Update any ticket.",

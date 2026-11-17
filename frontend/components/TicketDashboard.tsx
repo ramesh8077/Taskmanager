@@ -70,6 +70,7 @@ interface Ticket {
   rootCause?: string;
   resolutionNote?: string;
   deadline?: string | null;
+  startDate?: string | null;
   createdAt: string;
   updatedAt?: string;
   resolvedAt?: string | null;
@@ -189,6 +190,11 @@ function dateInputValue(value?: string | null): string {
   return date.toISOString().slice(0, 10);
 }
 
+function calendarDays(from?: string | null, to?: string | null): number {
+  if (!from || !to || from.slice(0, 10) > to.slice(0, 10)) return 0;
+  return Math.floor((Date.parse(`${to.slice(0, 10)}T00:00:00Z`) - Date.parse(`${from.slice(0, 10)}T00:00:00Z`)) / 86400000) + 1;
+}
+
 export default function TicketDashboard() {
   const { isDark } = useTheme();
   const { user } = useAuth();
@@ -227,6 +233,7 @@ export default function TicketDashboard() {
     priority: "P2" as Priority,
     department: "",
     assignedTo: "",
+    startDate: "",
     deadline: "",
     projectId: "",
     taskId: "",
@@ -236,6 +243,7 @@ export default function TicketDashboard() {
   const [reopenReason, setReopenReason] = useState("");
   const [showReopenForm, setShowReopenForm] = useState(false);
   const [deadlineValue, setDeadlineValue] = useState("");
+  const [deadlineStartDate, setDeadlineStartDate] = useState("");
   const [deadlineReason, setDeadlineReason] = useState("");
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [previewUrl, setPreviewUrl] = useState("");
@@ -370,7 +378,7 @@ export default function TicketDashboard() {
 
   const fetchMembers = useCallback(async () => {
     try {
-      const response = await API.get<ApiEnvelope<{ members: UserRef[] }>>("/users/members");
+      const response = await API.get<ApiEnvelope<{ members: UserRef[] }>>("/users/members?for=ticket");
       setMembers(response.data.data.members || []);
     } catch {
       toast.error("Could not load ticket assignees.");
@@ -422,6 +430,7 @@ export default function TicketDashboard() {
       const ticket = response.data.data.ticket;
       setViewTicket(ticket);
       setDeadlineValue(dateInputValue(ticket.deadline));
+      setDeadlineStartDate(dateInputValue(ticket.startDate));
       setTickets((current) => current.map((item) => (item.id === ticket.id ? { ...item, ...ticket } : item)));
     } catch {
       toast.error("Unable to refresh ticket details.");
@@ -433,12 +442,14 @@ export default function TicketDashboard() {
     setDetailTab("details");
     setCommentText("");
     setDeadlineValue(dateInputValue(ticket.deadline));
+    setDeadlineStartDate(dateInputValue(ticket.startDate));
     setDetailLoading(true);
     try {
       const response = await API.get<ApiEnvelope<{ ticket: Ticket }>>(`/tickets/${ticket.id}`);
       const detail = response.data.data.ticket;
       setViewTicket(detail);
       setDeadlineValue(dateInputValue(detail.deadline));
+      setDeadlineStartDate(dateInputValue(detail.startDate));
     } catch {
       toast.error("Could not load full ticket details.");
     } finally {
@@ -454,6 +465,7 @@ export default function TicketDashboard() {
       const ticket = response.data.data.ticket;
       setViewTicket(ticket);
       setDeadlineValue(dateInputValue(ticket.deadline));
+      setDeadlineStartDate(dateInputValue(ticket.startDate));
     } catch (error: unknown) {
       toast.error(errorMessage(error, "Could not open the linked ticket."));
     } finally {
@@ -467,6 +479,10 @@ export default function TicketDashboard() {
       toast.error("Ticket title and department are required.");
       return;
     }
+    if (createForm.startDate && !createForm.deadline) {
+      toast.error("Select a To date when you set a From date.");
+      return;
+    }
     setSubmitting(true);
     try {
       const body = {
@@ -476,6 +492,7 @@ export default function TicketDashboard() {
         priority: createForm.priority,
         department: createForm.department.trim(),
         assignedTo: createForm.assignedTo ? Number(createForm.assignedTo) : null,
+        startDate: createForm.startDate || undefined,
         deadline: createForm.deadline || undefined,
         projectId: createForm.projectId ? Number(createForm.projectId) : undefined,
         taskId: createForm.taskId ? Number(createForm.taskId) : undefined,
@@ -490,6 +507,7 @@ export default function TicketDashboard() {
         priority: "P2",
         department: "",
         assignedTo: "",
+        startDate: "",
         deadline: "",
         projectId: "",
         taskId: "",
@@ -568,6 +586,7 @@ export default function TicketDashboard() {
     try {
       await API.put(`/tickets/${viewTicket.id}/deadline`, {
         deadline: deadlineValue,
+        startDate: deadlineStartDate || null,
         reason: deadlineReason,
       });
       toast.success("Deadline updated.");
@@ -679,15 +698,6 @@ export default function TicketDashboard() {
   const canAssignTickets = can("ticket:assign");
   const positionRank: Record<string, number> = {
     MANAGER: 5, SUB_MANAGER: 4, TEAM_LEAD: 3, EMPLOYEE: 2, INTERN: 1,
-  };
-  const canManageTicket = (ticket: Ticket) => {
-    if (!user) return false;
-    if (user.position === "MANAGER") return true;
-    if (ticket.assignee) {
-      return ticket.assignee.department === user.department &&
-        positionRank[user.position] > positionRank[ticket.assignee.position || ""];
-    }
-    return Number(ticket.creator?.id) === Number(user.id);
   };
   const canEditTicketDeadline = (ticket: Ticket) =>
     Boolean(user && (
@@ -875,7 +885,7 @@ export default function TicketDashboard() {
                   <th className="px-4 py-3 font-bold">Assignee</th>
                   <th className="px-4 py-3 font-bold">Priority</th>
                   <th className="px-4 py-3 font-bold">Status</th>
-                  <th className="px-4 py-3 font-bold">Deadline</th>
+                  <th className="px-4 py-3 font-bold">Development period</th>
                   <th className="px-4 py-3 font-bold">Created</th>
                 </tr>
               </thead>
@@ -900,7 +910,7 @@ export default function TicketDashboard() {
                     <td className="px-4 py-4">{ticket.assignee?.name || "Unassigned"}</td>
                     <td className="px-4 py-4"><span className={`rounded-full border px-2.5 py-1 text-xs font-bold ${priorityClass[ticket.priority]}`}>{ticket.priority}</span></td>
                     <td className="px-4 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-bold ${statusClass[ticket.status]}`}>{ticket.status}</span></td>
-                    <td className={`px-4 py-4 text-xs ${mutedClass}`}>{dateLabel(ticket.deadline)}</td>
+                    <td className={`px-4 py-4 text-xs ${mutedClass}`}>{ticket.startDate ? <><span>{dateLabel(ticket.startDate)} – {dateLabel(ticket.deadline)}</span><span className="mt-1 block">{calendarDays(ticket.startDate, ticket.deadline)} calendar days</span></> : dateLabel(ticket.deadline)}</td>
                     <td className={`px-4 py-4 text-xs ${mutedClass}`}>{dateLabel(ticket.createdAt)}</td>
                   </tr>
                 ))}
@@ -961,12 +971,14 @@ export default function TicketDashboard() {
                 </label>
                 <label className="block text-xs font-bold">Assign to
                   <select disabled={!canAssignTickets} className={`${inputClass} mt-1.5`} value={createForm.assignedTo} onChange={(event) => setCreateForm((current) => ({ ...current, assignedTo: event.target.value }))}>
-                    <option value="">Unassigned</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                    <option value="">Unassigned</option>{members.filter((member) => user?.position === "MANAGER" ? !createForm.department || member.department === createForm.department : member.department === user?.department).map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
                   </select>
                 </label>
-                <label className="block text-xs font-bold">Deadline (optional)
-                  <input type="date" className={`${inputClass} mt-1.5`} value={createForm.deadline} onChange={(event) => setCreateForm((current) => ({ ...current, deadline: event.target.value }))} />
-                </label>
+                <div className="grid grid-cols-2 gap-3"><label className="block text-xs font-bold">From date (optional)
+                  <input type="date" className={`${inputClass} mt-1.5`} value={createForm.startDate} max={createForm.deadline || undefined} onChange={(event) => setCreateForm((current) => ({ ...current, startDate: event.target.value }))} />
+                </label><label className="block text-xs font-bold">To date / deadline
+                  <input type="date" className={`${inputClass} mt-1.5`} value={createForm.deadline} min={createForm.startDate || undefined} onChange={(event) => setCreateForm((current) => ({ ...current, deadline: event.target.value }))} />
+                </label>{calendarDays(createForm.startDate, createForm.deadline) > 0 && <p className={`col-span-2 text-xs ${mutedClass}`}>Estimated development period: {calendarDays(createForm.startDate, createForm.deadline)} calendar days</p>}</div>
                 <label className="block text-xs font-bold">Screenshot URL
                   <input type="url" className={`${inputClass} mt-1.5`} value={createForm.screenshotUrl} onChange={(event) => setCreateForm((current) => ({ ...current, screenshotUrl: event.target.value }))} placeholder="https://" />
                 </label>
@@ -1019,7 +1031,7 @@ export default function TicketDashboard() {
                       ["Requester", viewTicket.creator?.name || "—"],
                       ["Department", viewTicket.department],
                       ["Created", dateLabel(viewTicket.createdAt)],
-                      ["Deadline", dateLabel(viewTicket.deadline)],
+                      ["Development period", viewTicket.startDate ? `${dateLabel(viewTicket.startDate)} – ${dateLabel(viewTicket.deadline)}${calendarDays(viewTicket.startDate, viewTicket.deadline) ? ` · ${calendarDays(viewTicket.startDate, viewTicket.deadline)} days` : ""}` : dateLabel(viewTicket.deadline)],
                       ["Resolved", dateLabel(viewTicket.resolvedAt)],
                       ["Resolved by", resolvedBy?.name || "—"],
                     ].map(([label, value]) => (
@@ -1030,19 +1042,23 @@ export default function TicketDashboard() {
                   </div>
 
                   <div className="grid gap-4 lg:grid-cols-2">
-                    {canManageTicket(viewTicket) && <label className="block text-xs font-bold">Assignee
+                    {canAssignTickets && <label className="block text-xs font-bold">Assignee
                       <select disabled={submitting} className={`${inputClass} mt-1.5`} value={viewTicket.assignedTo ?? viewTicket.assignee?.id ?? ""} onChange={(event) => void updateAssignee(viewTicket, event.target.value)}>
-                        <option value="">Unassigned</option>{members.map((member) => <option key={member.id} value={member.id}>{member.name}</option>)}
+                        <option value="">Unassigned</option>{viewTicket.assignee && !members.some((member) => member.id === viewTicket.assignee?.id) && <option value={viewTicket.assignee.id}>{viewTicket.assignee.name} · current</option>}{members.map((member) => <option key={member.id} value={member.id}>{member.name} · {member.department}</option>)}
                       </select>
                     </label>}
-                    {canEditTicketDeadline(viewTicket) && <form onSubmit={updateDeadline} className="grid gap-2 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-                      <label className="block min-w-0 text-xs font-bold">Deadline
-                        <input type="date" required className={`${inputClass} mt-1.5`} value={deadlineValue.slice(0, 10)} onChange={(event) => setDeadlineValue(event.target.value)} />
+                    {canEditTicketDeadline(viewTicket) && <form onSubmit={updateDeadline} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto] sm:items-end">
+                      <label className="block min-w-0 text-xs font-bold">From date
+                        <input type="date" className={`${inputClass} mt-1.5`} value={deadlineStartDate.slice(0, 10)} max={deadlineValue || undefined} onChange={(event) => setDeadlineStartDate(event.target.value)} />
+                      </label>
+                      <label className="block min-w-0 text-xs font-bold">To date / deadline
+                        <input type="date" required className={`${inputClass} mt-1.5`} value={deadlineValue.slice(0, 10)} min={deadlineStartDate || undefined} onChange={(event) => setDeadlineValue(event.target.value)} />
                       </label>
                       <label className="block min-w-0 text-xs font-bold">Reason
                         <input type="text" required minLength={1} maxLength={2000} className={`${inputClass} mt-1.5`} value={deadlineReason} onChange={(event) => setDeadlineReason(event.target.value)} />
                       </label>
                       <button type="submit" disabled={submitting} className={buttonClass}>Save</button>
+                      {calendarDays(deadlineStartDate, deadlineValue) > 0 && <p className={`text-xs ${mutedClass}`}>{calendarDays(deadlineStartDate, deadlineValue)} calendar days</p>}
                     </form>}
                   </div>
 

@@ -30,6 +30,7 @@ const ticketRoutes = require("../src/routes/ticketRoutes");
 const workItemsRoutes = require("../src/routes/workItemsRoutes");
 const reportRoutes = require("../src/routes/reportRoutes");
 const settingsRoutes = require("../src/routes/settingsRoutes");
+const meetingRoutes = require("../src/routes/meetingRoutes");
 
 // ─── Import Database ────────────────────────────────────────────────────────
 
@@ -86,6 +87,7 @@ function ensureDB() {
           "202611030001-work-items-dashboard-indexes.js",
           "202611120001-employee-task-create-permission.js",
           "202611160002-push-subscriptions.js",
+          "202611170001-meetings.js",
         ];
         if (
           requiredMigrations.some(
@@ -141,6 +143,7 @@ app.use("/api/tickets", ticketRoutes);
 app.use("/api/work-items", workItemsRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/settings", settingsRoutes);
+app.use("/api/meetings", meetingRoutes);
 
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 

@@ -19,6 +19,8 @@ const POSITION_PERMISSIONS = Object.freeze({
     "report:view:any",
     "settings:manage",
   ],
+  EMPLOYEE: ["ticket:assign"],
+  INTERN: ["ticket:assign"],
   SUB_MANAGER: ["project:create", "task:create", "task:assign", "ticket:create", "ticket:assign", "user:view:team"],
   TEAM_LEAD: ["task:create", "task:assign", "ticket:create", "ticket:assign", "user:view:team"],
 });
@@ -34,7 +36,6 @@ function permissionsForPosition(user, grantedPermissions = []) {
     "task:create",
     "task:assign",
     "task:update:any",
-    "ticket:assign",
     "ticket:update:any",
   ]);
   return permissions.filter((permission) => !restricted.has(permission));

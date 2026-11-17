@@ -235,6 +235,7 @@ function normalizeWorkItem(item, view) {
     rawPriority: raw.priority,
     progress: Number(raw.progress) || 0,
     deadline: task ? raw.dueDate : raw.deadline,
+    startDate: raw.startDate || null,
     status: getStatusGroup(raw.status) || raw.status,
     rawStatus: raw.status,
   };

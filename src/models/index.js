@@ -40,6 +40,9 @@ db.TicketHistory = require("./ticketHistory.model")(sequelize);
 db.TicketAttachment = require("./ticketAttachment.model")(sequelize);
 db.Notification = require("./notification.model")(sequelize);
 db.PushSubscription = require("./pushSubscription.model")(sequelize);
+db.Meeting = require("./meeting.model")(sequelize);
+db.MeetingParticipant = require("./meetingParticipant.model")(sequelize);
+db.MeetingAttendance = require("./meetingAttendance.model")(sequelize);
 db.DeadlineHistory = require("./deadlineHistory.model")(sequelize);
 db.DeadlineExtensionRequest = require("./deadlineExtensionRequest.model")(sequelize);
 db.ActivityLog = require("./activityLog.model")(sequelize);
@@ -333,6 +336,16 @@ db.User.hasMany(db.Notification, { foreignKey: "userId", as: "notifications", on
 db.Notification.belongsTo(db.User, { foreignKey: "userId", as: "user" });
 db.User.hasMany(db.PushSubscription, { foreignKey: "userId", as: "pushSubscriptions", onDelete: "CASCADE" });
 db.PushSubscription.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.User.hasMany(db.Meeting, { foreignKey: "hostId", as: "hostedMeetings" });
+db.Meeting.belongsTo(db.User, { foreignKey: "hostId", as: "host" });
+db.Meeting.hasMany(db.MeetingParticipant, { foreignKey: "meetingId", as: "participants", onDelete: "CASCADE" });
+db.MeetingParticipant.belongsTo(db.Meeting, { foreignKey: "meetingId", as: "meeting" });
+db.MeetingParticipant.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.User.hasMany(db.MeetingParticipant, { foreignKey: "userId", as: "meetingMemberships" });
+db.Meeting.hasMany(db.MeetingAttendance, { foreignKey: "meetingId", as: "attendance", onDelete: "CASCADE" });
+db.MeetingAttendance.belongsTo(db.Meeting, { foreignKey: "meetingId", as: "meeting" });
+db.MeetingAttendance.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.User.hasMany(db.MeetingAttendance, { foreignKey: "userId", as: "meetingAttendance" });
 
 const { sendPushForNotification } = require("../lib/pushNotifications");
 const dispatchPush = (notification, transaction) => {

@@ -66,12 +66,19 @@ export default function WorkItemCreateActions({
   const [memberLoadError, setMemberLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [taskStartDate, setTaskStartDate] = useState("");
+  const [taskEndDate, setTaskEndDate] = useState("");
+  const [ticketStartDate, setTicketStartDate] = useState("");
+  const [ticketEndDate, setTicketEndDate] = useState("");
+  const durationDays = (from: string, to: string) => from && to && from <= to
+    ? Math.floor((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1
+    : 0;
 
   const scopedProjects = projects.filter((project) => project.department);
   const canCreateTask = can(user, "task:create");
   const canCreateTicket = can(user, "ticket:create");
   const canAssignTasks = can(user, "task:assign");
-  const canAssignTickets = can(user, "ticket:assign") && user?.position !== "INTERN";
+  const canAssignTickets = can(user, "ticket:assign");
   const canCreateProject = ["MANAGER", "SUB_MANAGER"].includes(user?.position || "") &&
     can(user, "project:create");
 
@@ -111,7 +118,7 @@ export default function WorkItemCreateActions({
     if (loadMembers) {
       setLoadingMembers(true);
       setMemberLoadError(false);
-      void API.get<ApiEnvelope<{ members: MemberOption[] }>>("/users/members")
+      void API.get<ApiEnvelope<{ members: MemberOption[] }>>(dialog === "ticket" ? "/users/members?for=ticket" : "/users/members")
         .then((response) => {
           if (active) setMembers(response.data.data.members || []);
         })
@@ -156,12 +163,16 @@ export default function WorkItemCreateActions({
     setError("");
     setSubmitting(true);
     try {
+      const dueDate = String(formData.get("dueDate") || "");
+      const startDate = String(formData.get("startDate") || "");
+      if (startDate && startDate > dueDate) throw new Error("From date must be on or before To date.");
       await API.post("/tasks", {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
         projectId: formData.get("projectId") ? Number(formData.get("projectId")) : null,
         assignedTo: Number(formData.get("assignedTo")),
-        dueDate: String(formData.get("dueDate") || ""),
+        dueDate,
+        ...(startDate ? { startDate } : {}),
         priority: String(formData.get("priority") || "Medium"),
       });
       setDialog(null);
@@ -179,6 +190,9 @@ export default function WorkItemCreateActions({
     try {
       const assignedTo = formData.get("assignedTo");
       const deadline = String(formData.get("deadline") || "");
+      const startDate = String(formData.get("startDate") || "");
+      if (startDate && !deadline) throw new Error("Select a To date when you set a From date.");
+      if (startDate && deadline && startDate > deadline) throw new Error("From date must be on or before To date.");
       await API.post("/tickets", {
         title: String(formData.get("title") || ""),
         description: String(formData.get("description") || ""),
@@ -192,6 +206,7 @@ export default function WorkItemCreateActions({
             ? { assignedTo: Number(assignedTo) }
             : {}),
         ...(deadline ? { deadline } : {}),
+        ...(startDate ? { startDate } : {}),
       });
       setDialog(null);
       window.location.reload();
@@ -315,13 +330,13 @@ export default function WorkItemCreateActions({
                       <option value="P0">Critical</option>
                     </select>
                   </label>
-                  {user?.position !== "INTERN" && can(user, "ticket:assign") && (
+                  {can(user, "ticket:assign") && (
                     <label>
                       Assign to
                     <select name="assignedTo" defaultValue="">
                         <option value="">Unassigned</option>
                       {loadingMembers && <option disabled>Loading team members…</option>}
-                        {members.map((member) => (
+                        {members.filter((member) => user?.position === "MANAGER" ? true : member.department === user?.department).map((member) => (
                           <option key={member.id} value={member.id}>
                             {member.name} · {member.department} · {member.position.replaceAll("_", " ")}
                           </option>
@@ -331,8 +346,12 @@ export default function WorkItemCreateActions({
                   )}
                   {["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(user?.position || "") && (
                     <label>
-                      Deadline
-                      <input name="deadline" type="date" />
+                      <span className="mb-2 block">Development period</span>
+                      <span className="grid grid-cols-2 gap-2">
+                        <span>From<input name="startDate" type="date" value={ticketStartDate} onChange={(event) => setTicketStartDate(event.target.value)} /></span>
+                        <span>To<input name="deadline" type="date" value={ticketEndDate} min={ticketStartDate || undefined} onChange={(event) => setTicketEndDate(event.target.value)} /></span>
+                      </span>
+                      {durationDays(ticketStartDate, ticketEndDate) > 0 && <span className="work-item-dialog-hint">{durationDays(ticketStartDate, ticketEndDate)} calendar days</span>}
                     </label>
                   )}
                 </div>
@@ -379,10 +398,11 @@ export default function WorkItemCreateActions({
                       ))}
                     </select>
                   </label>
-                  <label>
-                    Due date (required)
-                    <input name="dueDate" type="date" required />
-                  </label>
+                  <div className="grid grid-cols-2 gap-3">
+                    <label>From date (optional)<input name="startDate" type="date" value={taskStartDate} onChange={(event) => setTaskStartDate(event.target.value)} /></label>
+                    <label>To date / deadline (required)<input name="dueDate" type="date" required min={taskStartDate || undefined} value={taskEndDate} onChange={(event) => setTaskEndDate(event.target.value)} /></label>
+                    {durationDays(taskStartDate, taskEndDate) > 0 && <span className="work-item-dialog-hint col-span-2">Estimated development period: {durationDays(taskStartDate, taskEndDate)} calendar days</span>}
+                  </div>
                   <label>
                     Priority (default: Medium)
                     <select name="priority" defaultValue="Medium">

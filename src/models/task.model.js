@@ -96,6 +96,10 @@ module.exports = (sequelize) => {
           },
         },
       },
+      startDate: {
+        type: DataTypes.DATEONLY,
+        allowNull: true,
+      },
       projectId: {
         type: DataTypes.INTEGER,
         allowNull: true,

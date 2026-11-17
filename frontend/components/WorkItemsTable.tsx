@@ -52,6 +52,7 @@ export interface WorkItem {
   rawPriority?: string;
   progress: number;
   deadline: string | null;
+  startDate?: string | null;
   status: string;
   rawStatus: string;
 }
@@ -724,10 +725,10 @@ export default function WorkItemsTable({
                     <button
                       type="button"
                       aria-pressed={filters.sortBy === "deadline"}
-                      aria-label={`Sort by ${filters.view === "tasks" ? "due date" : "deadline"}, ${filters.sortBy === "deadline" ? filters.sortOrder === "ASC" ? "earliest first" : "latest first" : "latest first"}`}
+                      aria-label={`Sort by development period end date, ${filters.sortBy === "deadline" ? filters.sortOrder === "ASC" ? "earliest first" : "latest first" : "latest first"}`}
                       onClick={() => changeSort("deadline")}
                     >
-                      {filters.view === "tasks" ? "Due date" : "Deadline"}{filters.sortBy === "deadline" ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
+                      Development period{filters.sortBy === "deadline" ? (filters.sortOrder === "ASC" ? " ↑" : " ↓") : ""}
                     </button>
                   </th>
                   {(["assignedTo", "createdBy", "department"] as const).map((key) => {
@@ -764,7 +765,7 @@ export default function WorkItemsTable({
                         <td className="work-items-title">{item.title}</td>
                         <td><span className={`work-items-status status-${item.status.toLowerCase()}`}>{statusLabels[item.status] || item.status}</span></td>
                         <td><span className={`work-items-priority priority-${item.priority.toLowerCase()}`}>{priorityOptions.find((option) => option.value === item.priority)?.label || item.priority}</span></td>
-                        <td className={overdue ? "is-overdue" : ""}>{formatDate(item.deadline)}</td>
+                        <td className={overdue ? "is-overdue" : ""}>{item.startDate ? <><span>{formatDate(item.startDate)} – {formatDate(item.deadline)}</span><small className="block">{Math.floor((Date.parse(`${item.deadline?.slice(0, 10)}T00:00:00Z`) - Date.parse(`${item.startDate.slice(0, 10)}T00:00:00Z`)) / 86400000) + 1} days</small></> : formatDate(item.deadline)}</td>
                         <td>
                           {item.assignedTo ? (
                             <>

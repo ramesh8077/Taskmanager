@@ -836,6 +836,7 @@ interface Task {
   progress: number;
   priority: string;
   dueDate: string;
+  startDate?: string | null;
   projectId?: number;
   createdAt?: string;
   created_at?: string;
@@ -1105,9 +1106,9 @@ export default function AdminDashboard() {
   const [completingTask, setCompletingTask] = useState<Task | null>(null);
   const [completingSubmitting, setCompletingSubmitting] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [taskEditForm, setTaskEditForm] = useState({ title: "", description: "", dueDate: "", priority: "Medium", reason: "" });
+  const [taskEditForm, setTaskEditForm] = useState({ title: "", description: "", startDate: "", dueDate: "", priority: "Medium", reason: "" });
   const [projectForm, setProjectForm] = useState({ title: "", description: "" });
-  const [taskForm, setTaskForm] = useState({ title: "", description: "", dueDate: "", projectId: "", assignedTo: "", priority: "Medium" });
+  const [taskForm, setTaskForm] = useState({ title: "", description: "", startDate: "", dueDate: "", projectId: "", assignedTo: "", priority: "Medium" });
   const [loadError, setLoadError] = useState("");
   const [hasLoaded, setHasLoaded] = useState(false);
   const [selectedProject, setSelectedProject] = useState("");
@@ -1290,11 +1291,12 @@ export default function AdminDashboard() {
       setSubmitting(true);
       const { data } = await API.post("/tasks", {
         ...taskForm,
+        startDate: taskForm.startDate || null,
         projectId: Number(taskForm.projectId),
         assignedTo: Number(taskForm.assignedTo),
       });
       if (!data.success) throw new Error(data.message || "The update was not saved.");
-      if (data.success) { toast.success("Task created & assigned!"); setShowTaskModal(false); setTaskForm({ title: "", description: "", dueDate: "", projectId: "", assignedTo: "", priority: "Medium" }); fetchData(); }
+      if (data.success) { toast.success("Task created & assigned!"); setShowTaskModal(false); setTaskForm({ title: "", description: "", startDate: "", dueDate: "", projectId: "", assignedTo: "", priority: "Medium" }); fetchData(); }
     } catch (err: unknown) {
       toast.error(apiErrorMessage(err, "Failed to create task."));
     } finally { setSubmitting(false); }
@@ -1375,7 +1377,7 @@ export default function AdminDashboard() {
   const handleTaskEdit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!editingTask) return;
-    const deadlineChanged = taskEditForm.dueDate !== editingTask.dueDate.slice(0, 10);
+    const deadlineChanged = taskEditForm.dueDate !== editingTask.dueDate.slice(0, 10) || taskEditForm.startDate !== (editingTask.startDate || "").slice(0, 10);
     if (deadlineChanged && !taskEditForm.reason.trim()) {
       toast.error("Add a reason when changing the task deadline.");
       return;
@@ -1385,7 +1387,7 @@ export default function AdminDashboard() {
       const { data } = await API.put(`/tasks/${editingTask.id}`, {
         title: taskEditForm.title,
         description: taskEditForm.description || null,
-        dueDate: taskEditForm.dueDate,
+        ...(deadlineChanged ? { dueDate: taskEditForm.dueDate, startDate: taskEditForm.startDate || null } : {}),
         priority: taskEditForm.priority,
         ...(deadlineChanged ? { reason: taskEditForm.reason } : {}),
       });
@@ -1411,6 +1413,7 @@ export default function AdminDashboard() {
       title: task.title,
       description: task.description || "",
       dueDate: task.dueDate.slice(0, 10),
+      startDate: (task.startDate || "").slice(0, 10),
       priority: task.priority,
       reason: "",
     });
@@ -1575,10 +1578,11 @@ export default function AdminDashboard() {
               <div><label className="creation-label" htmlFor="edit-task-title">Task title</label><input id="edit-task-title" required minLength={3} maxLength={200} className="creation-input" value={taskEditForm.title} onChange={(event) => setTaskEditForm((current) => ({ ...current, title: event.target.value }))} /></div>
               <div><label className="creation-label" htmlFor="edit-task-description">Description</label><textarea id="edit-task-description" maxLength={10000} className="creation-input" value={taskEditForm.description} onChange={(event) => setTaskEditForm((current) => ({ ...current, description: event.target.value }))} /></div>
               <div className="creation-grid">
-                <div><label className="creation-label" htmlFor="edit-task-deadline">Deadline</label><input id="edit-task-deadline" required type="date" className="creation-input" value={taskEditForm.dueDate} onChange={(event) => setTaskEditForm((current) => ({ ...current, dueDate: event.target.value }))} /></div>
+              <div className="grid grid-cols-2 gap-3"><div><label className="creation-label" htmlFor="edit-task-start-date">From date</label><input id="edit-task-start-date" type="date" className="creation-input" value={taskEditForm.startDate} max={taskEditForm.dueDate || undefined} onChange={(event) => setTaskEditForm((current) => ({ ...current, startDate: event.target.value }))} /></div><div><label className="creation-label" htmlFor="edit-task-deadline">To date / deadline</label><input id="edit-task-deadline" required type="date" className="creation-input" min={taskEditForm.startDate || undefined} value={taskEditForm.dueDate} onChange={(event) => setTaskEditForm((current) => ({ ...current, dueDate: event.target.value }))} /></div></div>
+              {taskEditForm.startDate && taskEditForm.dueDate && taskEditForm.startDate <= taskEditForm.dueDate && <p className="aw-muted aw-small">Estimated development period: {Math.floor((Date.parse(`${taskEditForm.dueDate}T00:00:00Z`) - Date.parse(`${taskEditForm.startDate}T00:00:00Z`)) / 86400000) + 1} calendar days</p>}
                 <div><label className="creation-label" htmlFor="edit-task-priority">Priority</label><select id="edit-task-priority" className="creation-input" value={taskEditForm.priority} onChange={(event) => setTaskEditForm((current) => ({ ...current, priority: event.target.value }))}>{["Low", "Medium", "High", "Urgent"].map((priority) => <option key={priority}>{priority}</option>)}</select></div>
               </div>
-              {taskEditForm.dueDate !== editingTask.dueDate.slice(0, 10) && (
+              {(taskEditForm.dueDate !== editingTask.dueDate.slice(0, 10) || taskEditForm.startDate !== (editingTask.startDate || "").slice(0, 10)) && (
                 <div><label className="creation-label" htmlFor="edit-task-reason">Deadline change reason</label><textarea id="edit-task-reason" required minLength={5} maxLength={2000} className="creation-input" value={taskEditForm.reason} onChange={(event) => setTaskEditForm((current) => ({ ...current, reason: event.target.value }))} /></div>
               )}
             </fieldset>
@@ -1615,7 +1619,8 @@ export default function AdminDashboard() {
                 <div><label className="creation-label" htmlFor="task-project">Project</label><select id="task-project" required className="creation-input" value={taskForm.projectId} onChange={(e) => setTaskForm(p => ({ ...p, projectId: e.target.value }))}><option value="">Select a project</option>{projects.map(pr => <option key={pr.id} value={pr.id}>{pr.title}</option>)}</select>{projects.length === 0 && <p className="creation-note">Create a project before adding a task.</p>}</div>
                 <div><label className="creation-label" htmlFor="task-assignee">Assign member</label><select id="task-assignee" required className="creation-input" value={taskForm.assignedTo} onChange={(e) => setTaskForm(p => ({ ...p, assignedTo: e.target.value }))}><option value="">Select a member</option>{members.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}</select><p className="creation-note">{members.length ? "Only active members you are allowed to assign are listed." : "No active members are available for assignment in your permitted scope."}</p></div>
               </div>
-              <div><label className="creation-label" htmlFor="task-due-date">Due date</label><input id="task-due-date" required type="date" className="creation-input" value={taskForm.dueDate} onChange={(e) => setTaskForm(p => ({ ...p, dueDate: e.target.value }))} /></div>
+              <div className="grid grid-cols-2 gap-3"><div><label className="creation-label" htmlFor="task-start-date">From date (optional)</label><input id="task-start-date" type="date" className="creation-input" value={taskForm.startDate} max={taskForm.dueDate || undefined} onChange={(e) => setTaskForm(p => ({ ...p, startDate: e.target.value }))} /></div><div><label className="creation-label" htmlFor="task-due-date">To date / deadline</label><input id="task-due-date" required type="date" className="creation-input" min={taskForm.startDate || undefined} value={taskForm.dueDate} onChange={(e) => setTaskForm(p => ({ ...p, dueDate: e.target.value }))} /></div></div>
+              {taskForm.startDate && taskForm.dueDate && taskForm.startDate <= taskForm.dueDate && <p className="aw-muted aw-small">Estimated development period: {Math.floor((Date.parse(`${taskForm.dueDate}T00:00:00Z`) - Date.parse(`${taskForm.startDate}T00:00:00Z`)) / 86400000) + 1} calendar days</p>}
               <div role="group" aria-labelledby="task-priority-label"><span className="creation-label" id="task-priority-label">Priority</span><div className="creation-priorities">{["Low", "Medium", "High", "Urgent"].map(p => <button key={p} type="button" aria-pressed={taskForm.priority === p} onClick={() => setTaskForm(prev => ({ ...prev, priority: p }))} className="creation-priority">{p}</button>)}</div></div>
             </fieldset>
             <div className="creation-footer">

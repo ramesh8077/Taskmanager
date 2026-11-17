@@ -4,9 +4,9 @@ const TicketComment = db.TicketComment;
 const TicketHistory = db.TicketHistory;
 const User = db.User;
 const { Op } = require("sequelize");
-const { canAssignTask, isManager, canManageDeadlines } = require("../lib/permissions");
+const { isManager, canManageDeadlines } = require("../lib/permissions");
 const { can } = require("../lib/rbac");
-const { visibleUserIds, assignableUserIds, buildTicketQuery } = require("../lib/queryFilters");
+const { visibleUserIds, assignableTicketUserIds, buildTicketQuery } = require("../lib/queryFilters");
 const {
   scopedTicketByIdQuery,
   scopedUserQuery,
@@ -17,18 +17,11 @@ const {
  */
 const createTicket = async (req, res) => {
   try {
-    const { title, description, screenshotUrl, priority, assignedTo, deadline, department, projectId, taskId } = req.body;
-    if (
-      req.user.position === "INTERN" &&
-      assignedTo != null &&
-      Number(assignedTo) !== Number(req.user.id)
-    ) {
-      return res.status(403).json({ success: false, message: "Interns cannot assign tickets to other users." });
-    }
-    if (req.user.position === "INTERN" && deadline) {
+    const { title, description, screenshotUrl, priority, assignedTo, deadline, startDate, department, projectId, taskId } = req.body;
+    if (req.user.position === "INTERN" && (deadline || startDate)) {
       return res.status(403).json({ success: false, message: "Interns cannot set ticket deadlines." });
     }
-    if (deadline && !canManageDeadlines(req.user)) {
+    if ((deadline || startDate) && !canManageDeadlines(req.user)) {
       return res.status(403).json({ success: false, message: "You cannot set ticket deadlines." });
     }
     let assigneeId = null;
@@ -36,17 +29,13 @@ const createTicket = async (req, res) => {
     let assigneeDepartment = null;
     if (assignedTo !== undefined && assignedTo !== null) {
       const selfAssignment = Number(assignedTo) === Number(req.user.id);
-      const allowedAssigneeIds = selfAssignment
-        ? []
-        : await assignableUserIds(User, req.user);
+      const allowedAssigneeIds = await assignableTicketUserIds(User, req.user);
       const assignee = await User.findOne({
         where: { id: assignedTo, status: "ACTIVE", isActive: true },
       });
       if (!assignee || (
         !selfAssignment &&
-        (!allowedAssigneeIds.includes(Number(assignee.id)) ||
-          !canAssignTask(req.user, assignee) ||
-          (req.user.position === "EMPLOYEE" && !can(req.user, "ticket:assign")))
+        (!allowedAssigneeIds.includes(Number(assignee.id)) || !can(req.user, "ticket:assign"))
       )) {
         return res.status(404).json({
           ok: false,
@@ -59,11 +48,11 @@ const createTicket = async (req, res) => {
       assigneeName = assignee.name;
       assigneeDepartment = assignee.department;
     }
+    if (!isManager(req.user) && assigneeDepartment && assigneeDepartment !== req.user.department) {
+      return res.status(400).json({ success: false, message: "You can only assign a new ticket to a member in your department." });
+    }
     if (!isManager(req.user) && department && department !== req.user.department) {
       return res.status(403).json({ success: false, message: "You can only create tickets in your own department." });
-    }
-    if (assigneeDepartment && department && assigneeDepartment !== department) {
-      return res.status(400).json({ success: false, message: "The selected department must match the assignee's department." });
     }
     const ticketDepartment = assigneeDepartment || (isManager(req.user) ? department : req.user.department);
     if (!ticketDepartment) {
@@ -116,6 +105,7 @@ const createTicket = async (req, res) => {
           department: ticketDepartment,
           assignedTo: assigneeId,
           deadline: deadline || null,
+          startDate: startDate || null,
           projectId: linkedProjectId,
           taskId: taskId || null,
           createdBy: req.user.id,

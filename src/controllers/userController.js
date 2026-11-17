@@ -21,7 +21,7 @@ const {
   isManager,
   POSITION_RANK,
 } = require("../lib/permissions");
-const { assignableUserIds, visibleUserIds } = require("../lib/queryFilters");
+const { assignableUserIds, assignableTicketUserIds, visibleUserIds } = require("../lib/queryFilters");
 const { reportingManagerScope } = require("../lib/reportingScope");
 const { REPORTING_POSITIONS } = require("../../shared/organization");
 
@@ -63,7 +63,9 @@ function taskScope(memberId, query) {
  */
 const getMembers = async (req, res) => {
   try {
-    const memberIds = await assignableUserIds(User, req.user);
+    const memberIds = req.query.for === "ticket"
+      ? await assignableTicketUserIds(User, req.user)
+      : await assignableUserIds(User, req.user);
     const members = await User.findAll({
       where: {
         id: { [Op.in]: memberIds },

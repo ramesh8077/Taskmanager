@@ -39,7 +39,12 @@ function scopedTicketQuery(user) {
       ],
     };
   }
-  return { [Op.or]: [{ createdBy: user.id }, { assignedTo: user.id }] };
+  return {
+    [Op.or]: [
+      { [Op.and]: [{ createdBy: user.id }, { department: user.department }] },
+      { assignedTo: user.id },
+    ],
+  };
 }
 
 function scopedTicketByIdQuery(user, ticketId) {

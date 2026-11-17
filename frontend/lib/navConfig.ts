@@ -21,6 +21,7 @@ const everyone: readonly Position[] = [...managers, ...leads, ...employees];
 
 export const navigationItems: readonly NavigationItem[] = [
   { label: "Overview", href: "/dashboard", icon: "D", allowedPositions: everyone, permission: "task:view:own" },
+  { label: "Meetings", href: "/dashboard/meetings", icon: "ME", allowedPositions: everyone, permission: "task:view:own" },
   { label: "Projects", href: "/dashboard/projects", icon: "PR", allowedPositions: managers, permission: "project:view:own" },
   { label: "All Tasks", href: "/dashboard/all-tasks", icon: "T", allowedPositions: managers, permission: "task:view:any" },
   { label: "All Tickets", href: "/dashboard/all-tickets", icon: "K", allowedPositions: managers, permission: "ticket:view:any" },

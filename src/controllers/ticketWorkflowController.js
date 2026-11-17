@@ -12,6 +12,7 @@ const {
 } = require("../lib/permissions");
 const {
   assignableUserIds,
+  assignableTicketUserIds,
   buildTicketScope,
   buildTicketQuery,
   visibleUserIds,
@@ -280,26 +281,17 @@ async function assignTicket(req, res) {
     const { assignedTo } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
-    if (req.user.position === "INTERN") {
-      return res.status(403).json({ success: false, message: "Interns cannot reassign tickets." });
-    }
-    if (req.user.position === "EMPLOYEE" && !can(req.user, "ticket:assign")) {
+    if (!can(req.user, "ticket:assign")) {
       return res.status(403).json({ success: false, message: "You do not have permission to assign tickets." });
-    }
-    if (
-      !canManageTicket(req.user, ticket) &&
-      !(Number(ticket.createdBy) === Number(req.user.id) && can(req.user, "ticket:assign"))
-    ) {
-      return res.status(403).json({ success: false, message: "You cannot reassign this ticket." });
     }
     let assignee = null;
     if (assignedTo !== null) {
-      const allowedIds = await assignableUserIds(User, req.user);
+      const allowedIds = await assignableTicketUserIds(User, req.user);
       assignee = await User.findOne({
-        where: { id: assignedTo, status: "ACTIVE", isActive: true, ...(Number(assignedTo) === Number(req.user.id) ? {} : { id: { [Op.in]: allowedIds } }) },
+        where: { id: { [Op.eq]: assignedTo, [Op.in]: allowedIds }, status: "ACTIVE", isActive: true },
         attributes: ["id", "name", "department", "position"],
       });
-      if (!assignee || (Number(assignedTo) !== Number(req.user.id) && !canAssignTask(req.user, assignee))) {
+      if (!assignee) {
         return res.status(404).json({ success: false, message: "Assignee is outside your permitted team." });
       }
     }
@@ -600,7 +592,7 @@ async function reopenTicket(req, res) {
 async function updateDeadline(req, res) {
   try {
     const { id } = req.validatedParams || req.params;
-    const { deadline, reason } = req.body;
+    const { deadline, startDate, reason } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
     if (!canManageDeadlines(req.user) || !canManageTicket(req.user, ticket)) {
@@ -623,6 +615,10 @@ async function updateDeadline(req, res) {
           reason,
         }, { transaction });
       });
+    }
+    if (startDate !== undefined && ticket.startDate !== startDate) {
+      ticket.startDate = startDate;
+      await ticket.save();
     }
     return res.status(200).json({ success: true, data: { ticket } });
   } catch (error) {

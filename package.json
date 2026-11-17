@@ -30,6 +30,7 @@
     "express": "^5.2.1",
     "express-rate-limit": "^8.7.0",
     "jsonwebtoken": "^9.0.3",
+    "livekit-server-sdk": "^2.20.0",
     "multer": "^2.4.0",
     "mysql2": "^3.22.3",
     "next": "16.2.4",

@@ -27,6 +27,7 @@ interface WorkItem {
   rawPriority?: string;
   progress: number;
   deadline: string | null;
+  startDate?: string | null;
   status: string;
   rawStatus: string;
 }
@@ -115,6 +116,7 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
   const { user } = useAuth();
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [comments, setComments] = useState<CommentEntry[]>([]);
+  const [ticketAssignees, setTicketAssignees] = useState<Person[]>(assignableUsers);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [description, setDescription] = useState(item.description || "");
@@ -122,6 +124,7 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
   const [commentImage, setCommentImage] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [deadline, setDeadline] = useState("");
+  const [deadlineStartDate, setDeadlineStartDate] = useState(item.startDate?.slice(0, 10) || "");
   const [reason, setReason] = useState("");
   const [resolutionNote, setResolutionNote] = useState("");
   const [pendingStatus, setPendingStatus] = useState<"Resolved" | "Open" | null>(null);
@@ -130,6 +133,7 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
 
   const isManager = user?.position === "MANAGER";
   const isIntern = user?.position === "INTERN";
+  const canAssignTickets = can(user, "ticket:assign");
   const assignedToMe = Number(item.assignedTo?.id) === Number(user?.id);
   const canManageTeamItem = isManager || (
     !!item.assignedTo &&
@@ -140,10 +144,9 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
     !item.assignedTo &&
     item.createdBy?.id === user?.id
   );
-  const canAssign = can(
-    user,
-    item.type === "task" ? "task:assign" : "ticket:assign",
-  ) && (canManageTeamItem || item.createdBy?.id === user?.id);
+  const canAssign = item.type === "ticket"
+    ? canAssignTickets
+    : can(user, "task:assign") && (canManageTeamItem || item.createdBy?.id === user?.id);
   const canEditDeadline = !isIntern && canManageTeamItem &&
     ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(user?.position || "");
   const canEditPriority = canEditDeadline;
@@ -161,6 +164,19 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
     : item.rawStatus !== "Closed" && (isIntern ? assignedToMe : canManageTeamItem || assignedToMe || item.createdBy?.id === user?.id);
 
   const priorityValue = useMemo(() => item.rawPriority || item.priority, [item]);
+
+  useEffect(() => {
+    if (item.type !== "ticket" || !canAssignTickets) return;
+    let active = true;
+    void API.get<{ data: { members: Person[] } }>("/users/members?for=ticket")
+      .then((response) => {
+        if (active) setTicketAssignees(response.data.data.members || []);
+      })
+      .catch(() => {
+        if (active) setError("Could not load ticket assignees.");
+      });
+    return () => { active = false; };
+  }, [item.type, canAssignTickets]);
 
   useEffect(() => () => {
     if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
@@ -322,8 +338,8 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
       return;
     }
     void perform(() => item.type === "task"
-      ? API.put(`/tasks/${item.id}`, { dueDate: deadline, reason: reason.trim() })
-      : API.put(`/tickets/${item.id}/deadline`, { deadline, reason: reason.trim() }));
+      ? API.put(`/tasks/${item.id}`, { dueDate: deadline, startDate: deadlineStartDate || null, reason: reason.trim() })
+      : API.put(`/tickets/${item.id}/deadline`, { deadline, startDate: deadlineStartDate || null, reason: reason.trim() }));
   }
 
   function closeItem() {
@@ -406,7 +422,7 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
           <div><dt>Created by</dt><dd>{item.createdBy?.name || "—"}</dd></div>
           <div><dt>Department</dt><dd>{item.department}</dd></div>
           <div><dt>Priority</dt><dd>{item.priority}</dd></div>
-          <div><dt>Deadline</dt><dd>{shortDate(item.deadline)}</dd></div>
+          <div><dt>Development period</dt><dd>{item.startDate ? `${shortDate(item.startDate)} – ${shortDate(item.deadline)} (${Math.floor((Date.parse(`${item.deadline?.slice(0, 10)}T00:00:00Z`) - Date.parse(`${item.startDate.slice(0, 10)}T00:00:00Z`)) / 86400000) + 1} days)` : shortDate(item.deadline)}</dd></div>
           <div><dt>Status</dt><dd>{item.rawStatus}</dd></div>
           <div className="work-item-detail-progress"><dt>Work completed</dt><dd><TaskProgressControl
             progress={item.progress || 0}
@@ -469,7 +485,8 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
               Reassign
               <select value={item.assignedTo?.id || ""} disabled={busy} onChange={(event) => updateAssignee(event.target.value)}>
                 {item.type === "ticket" && <option value="">Unassigned</option>}
-                {assignableUsers.map((person) => (
+                {item.type === "ticket" && item.assignedTo && !ticketAssignees.some((person) => person.id === item.assignedTo?.id) && <option value={item.assignedTo.id}>{item.assignedTo.name} · current assignee</option>}
+                {(item.type === "ticket" ? ticketAssignees : assignableUsers).map((person) => (
                   <option key={person.id} value={person.id}>
                     {person.name} · {person.department} · {person.position.replaceAll("_", " ")}
                   </option>
@@ -491,9 +508,14 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
           {canEditDeadline && (
             <div className="work-item-detail-deadline">
               <label>
-                Extend deadline
-                <input type="date" min={item.deadline || new Date().toISOString().slice(0, 10)} value={deadline} disabled={busy} onChange={(event) => setDeadline(event.target.value)} />
+                From date
+                <input type="date" value={deadlineStartDate} max={deadline || undefined} disabled={busy} onChange={(event) => setDeadlineStartDate(event.target.value)} />
               </label>
+              <label>
+                To date / extended deadline
+                <input type="date" min={deadlineStartDate || item.deadline || new Date().toISOString().slice(0, 10)} value={deadline} disabled={busy} onChange={(event) => setDeadline(event.target.value)} />
+              </label>
+              {deadlineStartDate && deadline && deadlineStartDate <= deadline && <p>{Math.floor((Date.parse(`${deadline}T00:00:00Z`) - Date.parse(`${deadlineStartDate}T00:00:00Z`)) / 86400000) + 1} calendar days</p>}
               <label>
                 Reason
                 <input type="text" maxLength={2000} value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} />

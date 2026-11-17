@@ -77,7 +77,7 @@ async function findVisibleTask(actor, id, options = {}) {
  */
 const createTask = async (req, res) => {
   try {
-    const { title, description, dueDate, projectId, assignedTo, priority } = req.body;
+    const { title, description, dueDate, startDate, projectId, assignedTo, priority } = req.body;
 
     // ── Validate required fields ──────────────────────────────────────────
     if (!title || !dueDate || !assignedTo) {
@@ -142,6 +142,7 @@ const createTask = async (req, res) => {
           title,
           description: description || null,
           dueDate,
+          startDate: startDate || null,
           projectId: project?.id ?? null,
           assignedTo: assignee.id,
           assignedById: req.user.id,
@@ -530,7 +531,7 @@ const updateTask = async (req, res) => {
         Number(task.createdById) === Number(req.user.id)
       );
       if (!canEditTask(req.user, task) && !mayEditOwnDescription) return { error: "FORBIDDEN" };
-      if (Object.hasOwn(changes, "dueDate") && !canManageDeadlines(req.user)) {
+      if ((Object.hasOwn(changes, "dueDate") || Object.hasOwn(changes, "startDate")) && !canManageDeadlines(req.user)) {
         return { error: "DEADLINE_FORBIDDEN" };
       }
       if (Object.hasOwn(changes, "priority") && !canManagePriority(req.user)) {
@@ -543,9 +544,14 @@ const updateTask = async (req, res) => {
       ) {
         return { error: "DEADLINE_NOT_EXTENDED" };
       }
+      const nextStartDate = Object.hasOwn(changes, "startDate") ? changes.startDate : task.startDate;
+      const nextDueDate = Object.hasOwn(changes, "dueDate") ? changes.dueDate : task.dueDate;
+      if (nextStartDate && nextDueDate && nextStartDate > nextDueDate) {
+        return { error: "INVALID_DATE_RANGE" };
+      }
 
       const changedFields = [];
-      for (const field of ["title", "description", "priority", "dueDate"]) {
+      for (const field of ["title", "description", "priority", "dueDate", "startDate"]) {
         if (!Object.hasOwn(changes, field) || task[field] === changes[field]) continue;
         const oldValue = task[field] == null ? null : String(task[field]);
         const newValue = changes[field] == null ? null : String(changes[field]);
@@ -599,6 +605,9 @@ const updateTask = async (req, res) => {
     }
     if (updatedTask?.error === "DEADLINE_NOT_EXTENDED") {
       return res.status(400).json({ success: false, message: "An extended deadline must be later than the current deadline." });
+    }
+    if (updatedTask?.error === "INVALID_DATE_RANGE") {
+      return res.status(400).json({ success: false, message: "The start date must be on or before the due date." });
     }
     return res.status(200).json({ success: true, data: { task: updatedTask } });
   } catch (error) {

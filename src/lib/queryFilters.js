@@ -95,6 +95,13 @@ async function assignableUserIds(User, actor) {
   return users.map(({ id }) => Number(id));
 }
 
+async function assignableTicketUserIds(User, actor) {
+  if (!actor || !can(actor, "ticket:assign")) return [];
+  const where = { status: "ACTIVE", isActive: true };
+  const users = await User.findAll({ where, attributes: ["id"], raw: true });
+  return users.map(({ id }) => Number(id));
+}
+
 async function buildTaskQuery({ actor, User, DeadlineHistory, filters = {} }) {
   const allowedIds = await visibleUserIds(User, actor);
   const conditions = isManager(actor)
@@ -229,10 +236,10 @@ async function buildTicketScope({ actor, User }) {
     ? {}
     : {
       [Op.or]: [
-        { createdBy: actor?.id || -1 },
-        { assignedTo: { [Op.in]: visibleIds } },
+        { [Op.and]: [{ createdBy: actor?.id || -1 }, { department: actor.department }] },
+        { assignedTo: actor?.id || -1 },
+        { [Op.and]: [{ assignedTo: { [Op.in]: visibleIds } }, { department: actor.department }] },
       ],
-      department: actor.department,
     };
   return { where, visibleIds };
 }
@@ -296,6 +303,7 @@ module.exports = {
   visibleUserWhere,
   visibleUserIds,
   assignableUserIds,
+  assignableTicketUserIds,
   buildTaskQuery,
   buildTicketScope,
   buildTicketQuery,
