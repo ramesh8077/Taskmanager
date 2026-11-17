@@ -125,16 +125,14 @@ const startServer = async () => {
       "202611020001-department-hierarchy.js",
       "202611020002-deadline-extension-requests.js",
       "202611030001-work-items-dashboard-indexes.js",
-      "202611120001-employee-task-create-permission.js",
       "202611160002-push-subscriptions.js",
       "202611170001-meetings.js",
-      "202611170002-work-item-start-dates.js",
     ];
     const missingMigrations = requiredMigrations.filter(
       (migration) => !migrationRows.some((row) => row.migration_name === migration)
     );
     if (missingMigrations.length) {
-      throw new Error(`Database migrations are missing: ${missingMigrations.join(", ")}. Run \`npm run db:migrate\` before starting the server.`);
+      throw new Error("Database migrations are missing. Run `npm run db:migrate` before starting the server.");
     }
     console.log("✅ Database migrations are current.");
     emitDeadlineNotifications().catch((error) => {

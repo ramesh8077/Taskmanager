@@ -6,7 +6,7 @@ export type Position =
   | "INTERN";
 
 export interface NavigationItem {
-  label: string;
+  label: string; 
   href: string;
   icon: string;
   allowedPositions: readonly Position[];
