@@ -5,6 +5,7 @@ const { Op } = require("sequelize");
 const db = require("../models");
 const { can } = require("../lib/rbac");
 const { hasValidImageSignature } = require("../lib/commentImageUpload");
+const { notifyCommentRecipients } = require("../lib/commentNotifications");
 const {
   isManager,
   canAssignTask,
@@ -671,13 +672,21 @@ async function addComment(req, res) {
         imageFileName: req.file?.originalname?.split(/[\\/]/).pop()?.replace(/[\r\n\0]/g, "_").slice(0, 255) || null,
       }, { transaction });
       await recordHistory(ticket, req.user.id, "comment", null, comment.slice(0, 255), "commented", transaction);
-      await notifyUsers([ticket.assignedTo].filter((userId) => Number(userId) !== Number(req.user.id)), {
-        type: "ticket_comment",
-        title: "New ticket comment",
-        message: `A new comment was added to ticket #${ticket.id} “${ticket.title}”.`,
-        link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
-        dedupeKey: `ticket:${ticket.id}:comment:${created.id}`,
-      }, transaction);
+      await notifyCommentRecipients({
+        User,
+        Notification,
+        assigneeId: ticket.assignedTo,
+        relatedUserIds: [ticket.createdBy],
+        commenterId: req.user.id,
+        notification: {
+          type: "ticket_comment",
+          title: "New ticket comment",
+          message: `${req.user.name} commented on ticket #${ticket.id} “${ticket.title}”.`,
+          link: `/dashboard?view=tickets&status=ALL&search=${encodeURIComponent(ticket.title)}`,
+          dedupeKey: `ticket:${ticket.id}:comment:${created.id}`,
+        },
+        transaction,
+      });
       return TicketComment.findByPk(created.id, {
         attributes: ["id", "ticketId", "userId", "comment", "imageMimeType", "imageFileName", "createdAt", "updatedAt"],
         include: [{ model: User, as: "user", attributes: ["id", "name"] }],

@@ -4,6 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import toast from "react-hot-toast";
 import API from "@/lib/axios";
 import { useAuth } from "@/context/AuthContext";
+import {
+  disableMeetingNotificationSound,
+  enableMeetingNotificationSound,
+  isMeetingNotificationSoundEnabled,
+  unlockMeetingNotificationSound,
+} from "@/lib/meetingNotificationSound";
 
 interface NotificationItem {
   id: number;
@@ -40,6 +46,7 @@ export default function NotificationCenter() {
   const [pushEnabled, setPushEnabled] = useState(false);
   const [pushBusy, setPushBusy] = useState(false);
   const [pushError, setPushError] = useState("");
+  const [meetingSoundEnabled, setMeetingSoundEnabled] = useState(false);
 
   const loadNotifications = useCallback(async () => {
     try {
@@ -68,6 +75,21 @@ export default function NotificationCenter() {
       window.removeEventListener("taskmanager:notification", onNewNotification);
     };
   }, [loadNotifications, user?.id]);
+
+  useEffect(() => {
+    setMeetingSoundEnabled(isMeetingNotificationSoundEnabled());
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!meetingSoundEnabled || !user) return;
+    const unlockSound = () => { void unlockMeetingNotificationSound(); };
+    window.addEventListener("pointerdown", unlockSound);
+    window.addEventListener("keydown", unlockSound);
+    return () => {
+      window.removeEventListener("pointerdown", unlockSound);
+      window.removeEventListener("keydown", unlockSound);
+    };
+  }, [meetingSoundEnabled, user]);
 
   useEffect(() => {
     const supported = typeof window !== "undefined" &&
@@ -114,6 +136,20 @@ export default function NotificationCenter() {
     } finally {
       setPushBusy(false);
     }
+  };
+
+  const toggleMeetingSound = async () => {
+    if (meetingSoundEnabled) {
+      disableMeetingNotificationSound();
+      setMeetingSoundEnabled(false);
+      return;
+    }
+    const enabled = await enableMeetingNotificationSound();
+    if (!enabled) {
+      toast.error("This browser could not enable meeting notification sound.");
+      return;
+    }
+    setMeetingSoundEnabled(true);
   };
 
   const openNotification = async (notification: NotificationItem) => {
@@ -168,10 +204,14 @@ export default function NotificationCenter() {
                 <span className="notification-panel-item-message">{notification.message}</span>
                 <time dateTime={notification.createdAt}>{dateLabel(notification.createdAt)}</time>
               </button>
-            )) : <p className="notification-panel-empty">New task and ticket updates will appear here.</p>}
+            )) : <p className="notification-panel-empty">Task, ticket, and meeting updates will appear here.</p>}
           </div>
 
           <footer className="notification-panel-footer">
+            <button type="button" onClick={() => void toggleMeetingSound()} aria-pressed={meetingSoundEnabled}>
+              {meetingSoundEnabled ? "Meeting sound: on" : "Turn on meeting sound"}
+            </button>
+            <p>Sound plays while the app is open. With the app closed, notification sound follows your browser and device settings.</p>
             {pushEnabled ? (
               <span className="notification-push-enabled">✓ Browser notifications are on</span>
             ) : (

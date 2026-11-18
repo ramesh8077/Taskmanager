@@ -32,6 +32,27 @@ function liveKitHttpUrl(url) {
   return url.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
 }
 
+async function notifyMeetingParticipants(meeting, actorId, notification, transaction) {
+  const participantIds = [...new Set(
+    meeting.participants
+      .map((participant) => Number(participant.userId))
+      .filter((userId) => Number.isSafeInteger(userId) && userId > 0 && userId !== Number(actorId)),
+  )];
+  if (!participantIds.length) return;
+
+  const activeParticipants = await db.User.findAll({
+    where: { id: { [Op.in]: participantIds }, status: "ACTIVE", isActive: true },
+    attributes: ["id"],
+    transaction,
+  });
+  if (!activeParticipants.length) return;
+
+  await db.Notification.bulkCreate(
+    activeParticipants.map(({ id }) => ({ ...notification, userId: id })),
+    { transaction, ignoreDuplicates: true },
+  );
+}
+
 function failure(res, status, code, message) {
   return res.status(status).json({
     success: false,
@@ -152,7 +173,7 @@ async function createMeeting(req, res) {
           link: `/dashboard/meetings/${meeting.id}`,
           dedupeKey: `meeting-invited-${meeting.id}`,
         })),
-        { transaction },
+        { transaction, ignoreDuplicates: true },
       );
     }
     await transaction.commit();
@@ -285,6 +306,7 @@ async function endMeeting(req, res) {
 }
 
 async function cancelMeeting(req, res) {
+  let transaction;
   try {
     const meeting = await findVisibleMeeting(req.validatedParams.id, req.user.id);
     if (!meeting) return failure(res, 404, "MEETING_NOT_FOUND", "Meeting not found.");
@@ -294,9 +316,19 @@ async function cancelMeeting(req, res) {
     if (meeting.status !== "SCHEDULED") {
       return failure(res, 409, "MEETING_ALREADY_STARTED", "Only a scheduled meeting can be cancelled.");
     }
-    await meeting.update({ status: "CANCELLED", endedAt: new Date() });
+    transaction = await db.sequelize.transaction();
+    await meeting.update({ status: "CANCELLED", endedAt: new Date() }, { transaction });
+    await notifyMeetingParticipants(meeting, req.user.id, {
+      type: "MEETING_CANCELLED",
+      title: "Meeting cancelled",
+      message: `${req.user.name} cancelled “${meeting.title}”.`,
+      link: `/dashboard/meetings/${meeting.id}`,
+      dedupeKey: `meeting-cancelled-${meeting.id}`,
+    }, transaction);
+    await transaction.commit();
     return res.json({ success: true, message: "Meeting cancelled.", data: { meeting: publicMeeting(meeting) } });
   } catch (error) {
+    if (transaction && !transaction.finished) await transaction.rollback();
     console.error("Cancel meeting failed:", error);
     return failure(res, 500, "MEETING_CANCEL_FAILED", "Unable to cancel this meeting.");
   }

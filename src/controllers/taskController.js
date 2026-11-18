@@ -28,6 +28,7 @@ const { Op } = require("sequelize");
 const db = require("../models");
 const { can } = require("../lib/rbac");
 const { hasValidImageSignature } = require("../lib/commentImageUpload");
+const { notifyCommentRecipients } = require("../lib/commentNotifications");
 
 const Task = db.Task;
 const Project = db.Project;
@@ -895,17 +896,35 @@ const addTaskComment = async (req, res) => {
     if (req.file && !hasValidImageSignature(req.file)) {
       return res.status(400).json({ success: false, message: "The uploaded image contents do not match its file type." });
     }
-    const history = await db.sequelize.transaction(async (transaction) => TaskHistory.create({
-      taskId: task.id,
-      changedBy: req.user.id,
-      field: "comment",
-      oldValue: null,
-      newValue: comment,
-      imageData: req.file?.buffer || null,
-      imageMimeType: req.file?.mimetype || null,
-      imageFileName: req.file?.originalname?.split(/[\\/]/).pop()?.replace(/[\r\n\0]/g, "_").slice(0, 255) || null,
-      action: "updated",
-    }, { transaction }));
+    const history = await db.sequelize.transaction(async (transaction) => {
+      const created = await TaskHistory.create({
+        taskId: task.id,
+        changedBy: req.user.id,
+        field: "comment",
+        oldValue: null,
+        newValue: comment,
+        imageData: req.file?.buffer || null,
+        imageMimeType: req.file?.mimetype || null,
+        imageFileName: req.file?.originalname?.split(/[\\/]/).pop()?.replace(/[\r\n\0]/g, "_").slice(0, 255) || null,
+        action: "updated",
+      }, { transaction });
+      await notifyCommentRecipients({
+        User,
+        Notification,
+        assigneeId: task.assignedTo,
+        relatedUserIds: [task.createdById, task.assignedById],
+        commenterId: req.user.id,
+        notification: {
+          type: "task_comment",
+          title: "New task comment",
+          message: `${req.user.name} commented on task #${task.id} “${task.title}”.`,
+          link: `/dashboard?view=tasks&status=ALL&search=${encodeURIComponent(task.title)}`,
+          dedupeKey: `task:${task.id}:comment:${created.id}`,
+        },
+        transaction,
+      });
+      return created;
+    });
     return res.status(201).json({
       success: true,
       data: { comment: { id: history.id, comment: history.newValue, imageMimeType: history.imageMimeType, imageFileName: history.imageFileName, createdAt: history.createdAt } },

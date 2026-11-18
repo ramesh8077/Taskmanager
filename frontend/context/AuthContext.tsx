@@ -21,6 +21,7 @@ import {
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import API from "@/lib/axios";
+import { playMeetingNotificationSound } from "@/lib/meetingNotificationSound";
 
 interface NotificationMessage {
   id: number;
@@ -136,6 +137,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!notification || !Number.isSafeInteger(notificationId) || notificationId < 1 || notificationId <= lastNotificationId || seenNotificationIds.has(notificationId)) return;
       seenNotificationIds.add(notificationId);
       lastNotificationId = Math.max(lastNotificationId, notificationId);
+      if (notification.type.startsWith("MEETING_")) playMeetingNotificationSound();
       showNotification(notification);
       window.dispatchEvent(new CustomEvent("taskmanager:notification", { detail: notification }));
     };

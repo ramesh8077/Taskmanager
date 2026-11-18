@@ -8,11 +8,12 @@ self.addEventListener("push", (event) => {
 
   const title = payload.title || "FLIPPRO Task Manager";
   const options = {
-    body: payload.message || "You have a new task or ticket assignment.",
+    body: payload.message || "You have a new task, ticket, or meeting update.",
     icon: "/icon.png",
     badge: "/icon.png",
-    tag: payload.tag || "flippro-assignment",
+    tag: payload.tag || `flippro-${payload.type || "update"}-${payload.id || Date.now()}`,
     data: { link: payload.link || "/dashboard" },
+    silent: false,
     renotify: true,
   };
   event.waitUntil((async () => {

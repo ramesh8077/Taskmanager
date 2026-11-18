@@ -26,7 +26,12 @@ async function sendPushForNotification(notification) {
   let webpush;
   try {
     webpush = await configureWebPush();
-    if (!webpush || !["task_assigned", "ticket_assigned"].includes(notification.type)) return;
+    if (!webpush || ![
+      "task_assigned",
+      "ticket_assigned",
+      "MEETING_INVITATION",
+      "MEETING_CANCELLED",
+    ].includes(notification.type)) return;
   } catch (error) {
     console.error("Browser push configuration is invalid:", error.message);
     return;
@@ -37,9 +42,11 @@ async function sendPushForNotification(notification) {
     const subscriptions = await PushSubscription.findAll({ where: { userId: notification.userId } });
     const payload = JSON.stringify({
       id: notification.id,
+      type: notification.type,
       title: notification.title,
       message: notification.message,
       link: notification.link,
+      tag: notification.dedupeKey || `notification-${notification.id}`,
     });
 
     await Promise.all(subscriptions.map(async (subscription) => {
