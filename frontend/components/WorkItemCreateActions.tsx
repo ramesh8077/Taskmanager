@@ -453,13 +453,6 @@ export default function WorkItemCreateActions({
                       {loadingProjects && <option disabled>Loading projects…</option>}
                       {scopedProjects.map((project) => <option key={project.id} value={project.id}>{project.title} · {project.department}</option>)}
                     </select>
-                    {!loadingProjects && (projectLoadError || scopedProjects.length === 0) && (
-                      <span className="work-item-dialog-hint">
-                        {projectLoadError
-                          ? "Projects could not be loaded. You can still create this task without one."
-                          : `No projects are available for ${taskDepartment || "this department"}. ${canCreateProject ? "Create one using + New project." : "Ask a manager to create a project for this department."}`}
-                      </span>
-                    )}
                   </label>
                   <label>
                     Assignee (required)
@@ -476,6 +469,13 @@ export default function WorkItemCreateActions({
                       ))}
                     </select>
                   </label>
+                  {!loadingProjects && (projectLoadError || scopedProjects.length === 0) && (
+                    <p className="work-item-dialog-hint work-item-project-hint">
+                      {projectLoadError
+                        ? "Projects could not be loaded. You can still create this task without one."
+                        : `No projects are available for ${taskDepartment || "this department"}. ${canCreateProject ? "Create one using + New project." : "Ask a manager to create a project for this department."}`}
+                    </p>
+                  )}
                   <div className="work-item-date-range">
                     <label>From date (optional)<input name="startDate" type="date" max={taskEndDate || undefined} value={taskStartDate} onChange={(event) => setTaskStartDate(event.target.value)} /></label>
                     <label>To date / deadline (required)<input name="dueDate" type="date" required min={taskStartDate || undefined} value={taskEndDate} onChange={(event) => setTaskEndDate(event.target.value)} /></label>

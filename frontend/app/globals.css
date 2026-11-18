@@ -180,6 +180,7 @@
 }
 
 .work-item-dialog-grid {
+  align-items: start;
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
@@ -199,6 +200,11 @@
 .work-item-date-range > .work-item-dialog-hint {
   grid-column: 1 / -1;
   margin-top: 0;
+}
+
+.work-item-project-hint {
+  grid-column: 1 / -1;
+  margin-top: -6px;
 }
 
 .work-item-dialog-form label {
@@ -830,6 +836,9 @@
 .work-items-title {
   color: var(--text-primary);
   font-weight: 550;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: normal;
 }
 
 .work-items-priority,
@@ -1226,7 +1235,7 @@
   font-size: 13px;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 1120px) {
   .work-items-table-scroll {
     display: none;
   }
