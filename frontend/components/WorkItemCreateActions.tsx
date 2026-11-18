@@ -68,6 +68,8 @@ export default function WorkItemCreateActions({
   const [error, setError] = useState("");
   const [taskStartDate, setTaskStartDate] = useState("");
   const [taskEndDate, setTaskEndDate] = useState("");
+  const [taskAssigneeId, setTaskAssigneeId] = useState<number | null>(null);
+  const [taskProjectId, setTaskProjectId] = useState("");
   const [ticketStartDate, setTicketStartDate] = useState("");
   const [ticketEndDate, setTicketEndDate] = useState("");
   const [ticketScreenshot, setTicketScreenshot] = useState<File | null>(null);
@@ -87,7 +89,9 @@ export default function WorkItemCreateActions({
     return () => URL.revokeObjectURL(url);
   }, [ticketScreenshot]);
 
-  const scopedProjects = projects.filter((project) => project.department);
+  const selectedTaskAssignee = members.find((member) => member.id === taskAssigneeId);
+  const taskDepartment = selectedTaskAssignee?.department || user?.department || "";
+  const scopedProjects = projects.filter((project) => project.department === taskDepartment);
   const canCreateTask = can(user, "task:create");
   const canCreateTicket = can(user, "ticket:create");
   const canAssignTasks = can(user, "task:assign");
@@ -98,6 +102,8 @@ export default function WorkItemCreateActions({
   function openTaskDialog() {
     setDialog("task");
     setError("");
+    setTaskAssigneeId(user?.id || null);
+    setTaskProjectId("");
   }
 
   function openTicketDialog() {
@@ -388,9 +394,9 @@ export default function WorkItemCreateActions({
                   {can(user, "ticket:assign") && (
                     <label>
                       Assign to
-                    <select name="assignedTo" defaultValue="">
+                      <select name="assignedTo" defaultValue="">
                         <option value="">Unassigned</option>
-                      {loadingMembers && <option disabled>Loading team members…</option>}
+                        {loadingMembers && <option disabled>Loading team members…</option>}
                         {members.map((member) => (
                           <option key={member.id} value={member.id}>
                             {member.name} · {member.department} · {member.position.replaceAll("_", " ")}
@@ -400,14 +406,11 @@ export default function WorkItemCreateActions({
                     </label>
                   )}
                   {["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(user?.position || "") && (
-                    <label>
-                      <span className="mb-2 block">Development period</span>
-                      <span className="grid grid-cols-2 gap-2">
-                        <span>From<input name="startDate" type="date" value={ticketStartDate} onChange={(event) => setTicketStartDate(event.target.value)} /></span>
-                        <span>To<input name="deadline" type="date" value={ticketEndDate} min={ticketStartDate || undefined} onChange={(event) => setTicketEndDate(event.target.value)} /></span>
-                      </span>
-                      {durationDays(ticketStartDate, ticketEndDate) > 0 && <span className="work-item-dialog-hint">{durationDays(ticketStartDate, ticketEndDate)} calendar days</span>}
-                    </label>
+                    <div className="work-item-date-range">
+                      <label>From date (optional)<input name="startDate" type="date" value={ticketStartDate} max={ticketEndDate || undefined} onChange={(event) => setTicketStartDate(event.target.value)} /></label>
+                      <label>To date / deadline (optional)<input name="deadline" type="date" value={ticketEndDate} min={ticketStartDate || undefined} onChange={(event) => setTicketEndDate(event.target.value)} /></label>
+                      {durationDays(ticketStartDate, ticketEndDate) > 0 && <p className="work-item-dialog-hint">Estimated development period: {durationDays(ticketStartDate, ticketEndDate)} calendar days</p>}
+                    </div>
                   )}
                 </div>
                 <label>
@@ -445,7 +448,7 @@ export default function WorkItemCreateActions({
                 <div className="work-item-dialog-grid">
                   <label>
                     Project (optional)
-                    <select name="projectId" defaultValue="">
+                    <select name="projectId" value={taskProjectId} onChange={(event) => setTaskProjectId(event.target.value)}>
                       <option value="">No project</option>
                       {loadingProjects && <option disabled>Loading projects…</option>}
                       {scopedProjects.map((project) => <option key={project.id} value={project.id}>{project.title} · {project.department}</option>)}
@@ -454,13 +457,16 @@ export default function WorkItemCreateActions({
                       <span className="work-item-dialog-hint">
                         {projectLoadError
                           ? "Projects could not be loaded. You can still create this task without one."
-                          : "No projects available. You can still create this task without one."}
+                          : `No projects are available for ${taskDepartment || "this department"}. ${canCreateProject ? "Create one using + New project." : "Ask a manager to create a project for this department."}`}
                       </span>
                     )}
                   </label>
                   <label>
                     Assignee (required)
-                    <select name="assignedTo" required defaultValue={user?.id || ""}>
+                    <select name="assignedTo" required value={taskAssigneeId ?? user?.id ?? ""} onChange={(event) => {
+                      setTaskAssigneeId(Number(event.target.value));
+                      setTaskProjectId("");
+                    }}>
                       {user && <option value={user.id}>Assign to me ({user.name})</option>}
                       {loadingMembers && <option disabled>Loading team members…</option>}
                       {(can(user, "task:assign") ? members : []).map((member) => (
@@ -470,10 +476,10 @@ export default function WorkItemCreateActions({
                       ))}
                     </select>
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    <label>From date (optional)<input name="startDate" type="date" value={taskStartDate} onChange={(event) => setTaskStartDate(event.target.value)} /></label>
+                  <div className="work-item-date-range">
+                    <label>From date (optional)<input name="startDate" type="date" max={taskEndDate || undefined} value={taskStartDate} onChange={(event) => setTaskStartDate(event.target.value)} /></label>
                     <label>To date / deadline (required)<input name="dueDate" type="date" required min={taskStartDate || undefined} value={taskEndDate} onChange={(event) => setTaskEndDate(event.target.value)} /></label>
-                    {durationDays(taskStartDate, taskEndDate) > 0 && <span className="work-item-dialog-hint col-span-2">Estimated development period: {durationDays(taskStartDate, taskEndDate)} calendar days</span>}
+                    {durationDays(taskStartDate, taskEndDate) > 0 && <p className="work-item-dialog-hint">Estimated development period: {durationDays(taskStartDate, taskEndDate)} calendar days</p>}
                   </div>
                   <label>
                     Priority (default: Medium)

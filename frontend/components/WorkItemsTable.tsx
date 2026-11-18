@@ -803,6 +803,55 @@ export default function WorkItemsTable({
             </table>
           </div>
 
+          <div className="work-items-mobile-list" aria-label={`${filters.view} list`}>
+            {loading ? (
+              Array.from({ length: 4 }, (_, index) => <div className="work-items-mobile-card work-items-mobile-skeleton" key={index}><span /><span /><span /></div>)
+            ) : result?.data.length ? (
+              result.data.map((item) => {
+                const overdue = !!item.deadline &&
+                  item.deadline.slice(0, 10) < localDateValue(new Date()) &&
+                  item.status !== "DONE";
+                return (
+                  <article className="work-items-mobile-card" key={`${item.type}-${item.id}`}>
+                    <div className="work-items-mobile-card-heading">
+                      <span className="work-items-id">{item.referenceId}</span>
+                      <span className={`work-items-status status-${item.status.toLowerCase()}`}>{statusLabels[item.status] || item.status}</span>
+                    </div>
+                    <h3>{item.title}</h3>
+                    <div className="work-items-mobile-badges">
+                      <span className={`work-items-priority priority-${item.priority.toLowerCase()}`}>
+                        {priorityOptions.find((option) => option.value === item.priority)?.label || item.priority}
+                      </span>
+                      <span className={overdue ? "is-overdue" : ""}>
+                        {item.startDate
+                          ? `${formatDate(item.startDate)} – ${formatDate(item.deadline)}`
+                          : formatDate(item.deadline)}
+                      </span>
+                    </div>
+                    {item.startDate && item.deadline && (
+                      <small className="work-items-mobile-duration">
+                        {Math.floor((Date.parse(`${item.deadline.slice(0, 10)}T00:00:00Z`) - Date.parse(`${item.startDate.slice(0, 10)}T00:00:00Z`)) / 86400000) + 1} calendar days
+                      </small>
+                    )}
+                    <dl className="work-items-mobile-meta">
+                      <div><dt>Assignee</dt><dd>{item.assignedTo?.name || "Unassigned"}</dd></div>
+                      <div><dt>Created by</dt><dd>{item.createdBy?.name || "—"}</dd></div>
+                      <div><dt>Department</dt><dd>{item.department || "—"}</dd></div>
+                      <div><dt>Created</dt><dd>{formatDate(item.createdAt)}</dd></div>
+                    </dl>
+                    <button type="button" className="work-items-view-row" onClick={() => setSelectedItem(item)}>Details</button>
+                  </article>
+                );
+              })
+            ) : (
+              <div className="work-items-mobile-card work-items-empty">
+                <strong>{hasActiveFilters ? `No ${filters.view} match these filters` : `No ${filters.view} yet`}</strong>
+                <span>{hasActiveFilters ? "Clear some filters to see more results." : "New work will appear here when it is created."}</span>
+                {hasActiveFilters && <button type="button" onClick={clearFilters}>Clear filters</button>}
+              </div>
+            )}
+          </div>
+
           <div className="work-items-pagination">
             <label>
               Rows per page
