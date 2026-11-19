@@ -44,10 +44,16 @@ async function googleAccessToken() {
       grant_type: "refresh_token",
     }),
   });
-  const result = await response.json();
+  const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.access_token) {
-    console.error("Google OAuth token refresh failed:", result.error || response.status);
-    throw new Error("Google Meet authorization failed.");
+    console.error("Google OAuth token refresh failed:", {
+      httpStatus: response.status,
+      error: result.error || "missing_access_token",
+      description: result.error_description,
+    });
+    const error = new Error("Google Meet authorization failed.");
+    error.code = "GOOGLE_OAUTH_TOKEN_REFRESH_FAILED";
+    throw error;
   }
   return result.access_token;
 }
@@ -59,10 +65,16 @@ async function createGoogleMeetSpace() {
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({}),
   });
-  const result = await response.json();
+  const result = await response.json().catch(() => ({}));
   if (!response.ok || !result.meetingUri) {
-    console.error("Google Meet space creation failed:", result.error?.message || response.status);
-    throw new Error("Google Meet could not create a meeting space.");
+    console.error("Google Meet space creation failed:", {
+      httpStatus: response.status,
+      errorStatus: result.error?.status,
+      message: result.error?.message || "response_missing_meeting_uri",
+    });
+    const error = new Error("Google Meet could not create a meeting space.");
+    error.code = "GOOGLE_MEET_SPACE_CREATE_FAILED";
+    throw error;
   }
   return result.meetingUri;
 }
@@ -186,6 +198,11 @@ async function createMeeting(req, res) {
       meetingUri = await createGoogleMeetSpace();
     } catch (error) {
       await transaction.rollback();
+      console.error("Meeting link creation failed:", {
+        requestId: req.headers["x-vercel-id"] || req.headers["x-request-id"],
+        code: error.code || "GOOGLE_MEET_CREATE_FAILED",
+        message: error.message,
+      });
       if (error.code === "GOOGLE_MEET_NOT_CONFIGURED") {
         return failure(res, 503, error.code, "Google Meet is not configured on the server.");
       }
