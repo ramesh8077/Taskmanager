@@ -173,7 +173,7 @@ export default function MeetingWorkspace() {
               <div className={styles.peopleHeader}>
                 <div>
                   <h3>Invite teammates</h3>
-                  <p>Only people within your team access scope are listed.</p>
+                  <p>Invite any active teammate in the organization.</p>
                 </div>
                 <span className={styles.selectedCount}>{selectedPeople.length} selected</span>
               </div>

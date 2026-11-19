@@ -1,7 +1,6 @@
 const { Op } = require("sequelize");
 const { randomUUID } = require("node:crypto");
 const db = require("../models");
-const { visibleUserIds } = require("../lib/queryFilters");
 
 const MAX_PARTICIPANTS = 25;
 const meetingInclude = [
@@ -146,11 +145,10 @@ async function listMeetings(req, res) {
 
 async function listInviteablePeople(req, res) {
   try {
-    // The host is added automatically when the meeting is created, so keep
-    // them out of the invite picker.
-    const visibleIds = await visibleUserIds(db.User, req.user, { includeSelf: false });
     const people = await db.User.findAll({
-      where: { id: { [Op.in]: visibleIds }, status: "ACTIVE", isActive: true },
+      // Meetings can be shared across team boundaries. The host is added
+      // automatically, so keep them out of the invite picker.
+      where: { id: { [Op.ne]: req.user.id }, status: "ACTIVE", isActive: true },
       attributes: ["id", "name", "department", "position"],
       order: [["name", "ASC"]],
       limit: 250,
@@ -170,14 +168,6 @@ async function createMeeting(req, res) {
     if (attendeeIds.length + 1 > MAX_PARTICIPANTS) {
       await transaction.rollback();
       return failure(res, 400, "TOO_MANY_PARTICIPANTS", `A meeting can have up to ${MAX_PARTICIPANTS} participants.`);
-    }
-
-    const visibleIds = new Set(
-      (await visibleUserIds(db.User, req.user, { includeSelf: true })).map(Number),
-    );
-    if (attendeeIds.some((id) => !visibleIds.has(id))) {
-      await transaction.rollback();
-      return failure(res, 403, "INVITEE_OUT_OF_SCOPE", "You can invite people within your team scope only.");
     }
 
     if (attendeeIds.length) {
