@@ -176,10 +176,13 @@ function dateLabel(value?: string | null): string {
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
   if (dateOnly) {
     const [, year, month, day] = dateOnly;
-    return new Date(Number(year), Number(month) - 1, Number(day)).toLocaleDateString();
+    return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" })
+      .format(new Date(Number(year), Number(month) - 1, Number(day)));
   }
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+  return Number.isNaN(date.getTime()) ? "—" : new Intl.DateTimeFormat("en-GB", {
+    day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+  }).format(date);
 }
 
 function dateInputValue(value?: string | null): string {

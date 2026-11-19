@@ -108,32 +108,29 @@ browser must allow notifications; users can revoke permission from browser
 site settings. Assignment notifications are sent to opted-in devices for both
 tasks and tickets.
 
-### In-app meetings
+### Google Meet
 
-Meetings use a self-hosted LiveKit server for audio, video, screen share, and
-in-room chat. The Next.js app and meeting metadata API can stay on Vercel;
-Vercel Functions do not host the WebRTC media server. Deploy LiveKit on an
-always-on VM with a public address, HTTPS/TLS, and the required WebRTC UDP/TCP
-ports open. Configure the same API key and secret on LiveKit and in the backend
-environment:
+Meetings use the Google Meet REST API to create a Meet link when a meeting is
+scheduled. Joining opens that link in Google Meet; the app records attendance
+when the user requests the link. Video, microphone, and screen sharing run in
+Google Meet rather than being embedded in this app.
+
+Enable the Google Meet REST API in the Google Cloud project. The OAuth client
+must be authorized by a Google account with the
+`https://www.googleapis.com/auth/meetings.space.created` scope. A client ID and
+client secret alone are not enough: obtain an offline OAuth refresh token for
+that scope, then set these variables in the backend/Vercel project:
 
 ```text
-LIVEKIT_URL=wss://meet.example.com
-LIVEKIT_API_KEY=<server-api-key>
-LIVEKIT_API_SECRET=<server-api-secret>
+GOOGLE_CLIENT_ID=<oauth-client-id>
+GOOGLE_CLIENT_SECRET=<oauth-client-secret>
+GOOGLE_REFRESH_TOKEN=<authorized-user-refresh-token>
 ```
 
-Set these values in the backend/Vercel environment only. Never use a
-`NEXT_PUBLIC_` prefix for the API key or secret. Apply the meetings schema with
-`npm run db:migrate` before deploying the app code. The API issues short-lived,
-room-scoped participant tokens only after checking meeting membership. Invitees
-are limited to the caller's team visibility scope; attendance sessions are
-recorded when participants join and leave. A host can start, cancel, or end a
-meeting. Ending a live room calls the LiveKit server to disconnect participants.
-
-The current meeting UI includes scheduling, team invitations, in-app joining,
-camera/microphone controls, screen sharing, in-room chat, and attendance
-history. AI transcription and minutes are not enabled in this phase.
+Keep the client secret and refresh token server-side; do not add a
+`NEXT_PUBLIC_` prefix. Apply the schema with `npm run db:migrate` before
+deploying the app code. The migration adds a place to store each generated
+Meet URL. Invitees remain limited to the caller's team visibility scope.
 
 public registration always creates an `EMPLOYEE`. A submitted role field is
 rejected; role assignment is never accepted from an unauthenticated client.

@@ -1,6 +1,5 @@
 const { Op } = require("sequelize");
 const { randomUUID } = require("node:crypto");
-const { AccessToken, RoomServiceClient } = require("livekit-server-sdk");
 const db = require("../models");
 const { visibleUserIds } = require("../lib/queryFilters");
 
@@ -21,15 +20,67 @@ function publicMeeting(meeting) {
   return value;
 }
 
-function liveKitEnvironment() {
-  const url = process.env.LIVEKIT_URL?.trim();
-  const apiKey = process.env.LIVEKIT_API_KEY?.trim();
-  const apiSecret = process.env.LIVEKIT_API_SECRET?.trim();
-  return url && apiKey && apiSecret ? { url, apiKey, apiSecret } : null;
+function googleOAuthEnvironment() {
+  const clientId = process.env.GOOGLE_CLIENT_ID?.trim();
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET?.trim();
+  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN?.trim();
+  return clientId && clientSecret && refreshToken ? { clientId, clientSecret, refreshToken } : null;
 }
 
-function liveKitHttpUrl(url) {
-  return url.replace(/^wss:/i, "https:").replace(/^ws:/i, "http:");
+async function googleAccessToken() {
+  const credentials = googleOAuthEnvironment();
+  if (!credentials) {
+    const error = new Error("Google Meet OAuth credentials are not configured.");
+    error.code = "GOOGLE_MEET_NOT_CONFIGURED";
+    throw error;
+  }
+
+  const response = await fetch("https://oauth2.googleapis.com/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      client_id: credentials.clientId,
+      client_secret: credentials.clientSecret,
+      refresh_token: credentials.refreshToken,
+      grant_type: "refresh_token",
+    }),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.access_token) {
+    console.error("Google OAuth token refresh failed:", result.error || response.status);
+    throw new Error("Google Meet authorization failed.");
+  }
+  return result.access_token;
+}
+
+async function createGoogleMeetSpace() {
+  const accessToken = await googleAccessToken();
+  const response = await fetch("https://meet.googleapis.com/v2/spaces", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  const result = await response.json();
+  if (!response.ok || !result.meetingUri) {
+    console.error("Google Meet space creation failed:", result.error?.message || response.status);
+    throw new Error("Google Meet could not create a meeting space.");
+  }
+  return result.meetingUri;
+}
+
+async function endGoogleMeetSpace(meetingUri) {
+  const accessToken = await googleAccessToken();
+  const meetingCode = new URL(meetingUri).pathname.split("/").filter(Boolean).at(-1);
+  if (!meetingCode) throw new Error("Google Meet link is invalid.");
+  const response = await fetch(
+    `https://meet.googleapis.com/v2/spaces/${encodeURIComponent(meetingCode)}:endActiveConference`,
+    { method: "POST", headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!response.ok) {
+    const result = await response.json().catch(() => ({}));
+    console.error("Google Meet end conference failed:", result.error?.message || response.status);
+    throw new Error("Google Meet could not end the active conference.");
+  }
 }
 
 async function notifyMeetingParticipants(meeting, actorId, notification, transaction) {
@@ -140,6 +191,17 @@ async function createMeeting(req, res) {
       }
     }
 
+    let meetingUri;
+    try {
+      meetingUri = await createGoogleMeetSpace();
+    } catch (error) {
+      await transaction.rollback();
+      if (error.code === "GOOGLE_MEET_NOT_CONFIGURED") {
+        return failure(res, 503, error.code, "Google Meet is not configured on the server.");
+      }
+      return failure(res, 503, "GOOGLE_MEET_CREATE_FAILED", "Google Meet could not create a meeting link.");
+    }
+
     const meeting = await db.Meeting.create(
       {
         title: req.body.title,
@@ -148,6 +210,7 @@ async function createMeeting(req, res) {
         durationMinutes: req.body.durationMinutes,
         status: "SCHEDULED",
         roomName: randomUUID(),
+        meetingUri,
         hostId: req.user.id,
       },
       { transaction },
@@ -206,14 +269,12 @@ async function getMeeting(req, res) {
 
 async function joinMeeting(req, res) {
   try {
-    const credentials = liveKitEnvironment();
-    if (!credentials) {
-      return failure(res, 503, "MEETING_SERVICE_NOT_CONFIGURED", "The meeting service is not configured yet.");
-    }
-
     const meeting = await findVisibleMeeting(req.validatedParams.id, req.user.id);
     if (!meeting || ["ENDED", "CANCELLED"].includes(meeting.status)) {
       return failure(res, 404, "MEETING_NOT_AVAILABLE", "This meeting is unavailable.");
+    }
+    if (!meeting.meetingUri) {
+      return failure(res, 409, "GOOGLE_MEET_LINK_MISSING", "This meeting has no Google Meet link. Please schedule a new meeting.");
     }
 
     const isHost = Number(meeting.hostId) === Number(req.user.id);
@@ -224,26 +285,11 @@ async function joinMeeting(req, res) {
       await meeting.update({ status: "LIVE", startedAt: new Date() });
     }
 
-    const token = new AccessToken(credentials.apiKey, credentials.apiSecret, {
-      identity: `u_${req.user.id}`,
-      name: req.user.name,
-      ttl: "5m",
-    });
-    token.addGrant({
-      roomJoin: true,
-      room: meeting.roomName,
-      canPublish: true,
-      canSubscribe: true,
-      canPublishData: true,
-    });
-    const participantToken = await token.toJwt();
-
     await db.MeetingAttendance.create({ meetingId: meeting.id, userId: req.user.id });
     return res.json({
       success: true,
       data: {
-        token: participantToken,
-        serverUrl: credentials.url,
+        meetingUri: meeting.meetingUri,
         meeting: { id: meeting.id, title: meeting.title, status: "LIVE" },
       },
     });
@@ -281,16 +327,7 @@ async function endMeeting(req, res) {
       return failure(res, 409, "MEETING_CANCELLED", "This meeting was cancelled.");
     }
 
-    const credentials = liveKitEnvironment();
-    if (!credentials) {
-      return failure(res, 503, "MEETING_SERVICE_NOT_CONFIGURED", "The meeting service is not configured yet.");
-    }
-    const roomService = new RoomServiceClient(
-      liveKitHttpUrl(credentials.url),
-      credentials.apiKey,
-      credentials.apiSecret,
-    );
-    await roomService.deleteRoom(meeting.roomName);
+    await endGoogleMeetSpace(meeting.meetingUri);
 
     const endedAt = new Date();
     await meeting.update({ status: "ENDED", endedAt });

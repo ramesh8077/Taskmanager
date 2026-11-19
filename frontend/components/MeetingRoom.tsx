@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { LiveKitRoom, RoomAudioRenderer, VideoConference } from "@livekit/components-react";
 import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import API from "@/lib/axios";
@@ -24,6 +23,7 @@ interface Meeting {
   durationMinutes: number;
   status: "SCHEDULED" | "LIVE" | "ENDED" | "CANCELLED";
   hostId: number;
+  meetingUri: string | null;
   host: { id: number; name: string };
   participants: MeetingParticipant[];
 }
@@ -36,8 +36,7 @@ interface Attendance {
 }
 
 interface JoinInfo {
-  token: string;
-  serverUrl: string;
+  meetingUri: string;
 }
 
 function messageFrom(error: unknown, fallback: string) {
@@ -158,24 +157,16 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
 
         <div className={styles.roomPanel}>
           {joinInfo ? (
-            <div className={styles.livekit}>
-              <LiveKitRoom
-                token={joinInfo.token}
-                serverUrl={joinInfo.serverUrl}
-                connect
-                audio
-                video
-                onDisconnected={() => {
-                  void (async () => {
-                    await leave(false);
-                    await loadMeeting();
-                  })();
-                }}
-                data-lk-theme="default"
-              >
-                <VideoConference />
-                <RoomAudioRenderer />
-              </LiveKitRoom>
+            <div className={styles.roomNotice}>
+              <h2>Google Meet link ready</h2>
+              <p>Attendance is recorded. Open the link to join the call in Google Meet.</p>
+              <a className={styles.primaryButton} href={joinInfo.meetingUri} target="_blank" rel="noopener noreferrer">
+                Open Google Meet
+              </a>
+              {error && <p className={styles.roomError}>{error}</p>}
+              <button className={styles.secondaryButton} onClick={() => void leave()}>
+                I left the meeting
+              </button>
             </div>
           ) : (
             <div className={styles.roomNotice}>

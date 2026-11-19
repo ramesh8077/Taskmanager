@@ -69,8 +69,5 @@
 .attendanceRow { display: flex; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-radius: 10px; font-size: 12px; }
 .attendanceRow small { color: var(--text-secondary); }
 .roomError { padding: 10px 12px; border: 1px solid #ef444455; border-radius: 10px; color: #b91c1c; background: #ef444410; font-size: 12px; }
-.livekit { min-height: 68vh; --lk-bg: #111827; --lk-fg: #f8fafc; --lk-border-color: #334155; --lk-control-bg: #1e293b; }
-.livekit :global(.lk-video-conference) { height: 68vh; min-height: 520px; }
-.livekit :global(.lk-control-bar) { border-color: #334155; }
 @media (max-width: 980px) { .meetingGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 700px) { .workspace { padding: 22px 16px 44px; } .header { align-items: flex-start; flex-direction: column; } .form { padding: 17px; } .formGrid { grid-template-columns: 1fr; } .agendaField { grid-column: auto; } .peopleList, .meetingGrid { grid-template-columns: 1fr; } .historyRow { padding: 12px; } .historyRow > .status { display: none; } .roomPage { padding: 14px; } .roomHeader { flex-direction: column; } .roomPanel { min-height: 330px; } .livekit :global(.lk-video-conference) { min-height: 430px; height: 65vh; } }
+@media (max-width: 700px) { .workspace { padding: 22px 16px 44px; } .header { align-items: flex-start; flex-direction: column; } .form { padding: 17px; } .formGrid { grid-template-columns: 1fr; } .agendaField { grid-column: auto; } .peopleList, .meetingGrid { grid-template-columns: 1fr; } .historyRow { padding: 12px; } .historyRow > .status { display: none; } .roomPage { padding: 14px; } .roomHeader { flex-direction: column; } .roomPanel { min-height: 330px; } }

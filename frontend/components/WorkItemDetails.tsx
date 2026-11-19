@@ -109,7 +109,7 @@ function getErrorMessage(error: unknown) {
 
 function shortDate(value: string | null) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(`${value.slice(0, 10)}T00:00:00`));
+  return new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "2-digit", year: "numeric" }).format(new Date(`${value.slice(0, 10)}T00:00:00`));
 }
 
 export default function WorkItemDetails({ item, assignableUsers, onClose }: Props) {
