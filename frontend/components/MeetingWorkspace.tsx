@@ -54,6 +54,14 @@ export default function MeetingWorkspace() {
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [query, setQuery] = useState("");
+  const [meetingView, setMeetingView] = useState<"all" | "upcoming" | "history">("all");
+  const [meetingSearch, setMeetingSearch] = useState("");
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("create") === "1") setShowForm(true);
+    if (params.get("view") === "history") setMeetingView("history");
+  }, []);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -83,8 +91,12 @@ export default function MeetingWorkspace() {
     );
   }, [people, query]);
 
-  const upcoming = meetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status));
-  const history = meetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status));
+  const searchTerm = meetingSearch.trim().toLowerCase();
+  const searchedMeetings = meetings.filter((meeting) =>
+    !searchTerm || `${meeting.title} ${meeting.agenda || ""} ${meeting.host?.name || ""}`.toLowerCase().includes(searchTerm),
+  );
+  const upcoming = searchedMeetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status));
+  const history = searchedMeetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status));
 
   async function createMeeting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -214,7 +226,15 @@ export default function MeetingWorkspace() {
           <div className={styles.emptyState}>Loading meetings…</div>
         ) : (
           <>
-            <section className={styles.section}>
+            <div className={styles.meetingWorkspaceTools}>
+              <div className={styles.meetingViewTabs} aria-label="Meeting views">
+                {([ ["all", `All (${meetings.length})`], ["upcoming", `Upcoming (${meetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status)).length})`], ["history", `History (${meetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status)).length})`] ] as const).map(([value, label]) => (
+                  <button type="button" key={value} className={meetingView === value ? styles.activeMeetingTab : ""} onClick={() => setMeetingView(value)} aria-pressed={meetingView === value}>{label}</button>
+                ))}
+              </div>
+              <input className={styles.meetingSearch} value={meetingSearch} onChange={(event) => setMeetingSearch(event.target.value)} placeholder="Search meetings" aria-label="Search meetings" />
+            </div>
+            {meetingView !== "history" && <section className={styles.section}>
               <div className={styles.sectionHeading}>
                 <div><h2>Upcoming & live</h2><p>Meetings you host or have been invited to.</p></div>
                 <span className={styles.count}>{upcoming.length}</span>
@@ -244,9 +264,9 @@ export default function MeetingWorkspace() {
               ) : (
                 <div className={styles.emptyState}>No upcoming meetings. Schedule one to get started.</div>
               )}
-            </section>
+            </section>}
 
-            <section className={styles.section}>
+            {meetingView !== "upcoming" && <section className={styles.section}>
               <div className={styles.sectionHeading}>
                 <div><h2>Meeting history</h2><p>Past meetings and cancelled sessions.</p></div>
                 <span className={styles.count}>{history.length}</span>
@@ -265,7 +285,7 @@ export default function MeetingWorkspace() {
               ) : (
                 <div className={styles.emptyState}>Completed meetings will appear here.</div>
               )}
-            </section>
+            </section>}
           </>
         )}
       </section>

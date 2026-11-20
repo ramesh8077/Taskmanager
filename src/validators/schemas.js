@@ -358,6 +358,14 @@ const createMeetingBody = z
     { message: "Meeting start time must be in the future.", path: ["scheduledAt"] },
   );
 
+const inviteMeetingParticipantsBody = z
+  .object({ attendeeIds: z.array(positiveId).min(1).max(24) })
+  .strict();
+
+const meetingMinutesBody = z
+  .object({ transcript: z.string().trim().max(150000).optional() })
+  .strict();
+
 module.exports = {
   loginBody,
   registerBody,
@@ -396,4 +404,6 @@ module.exports = {
   ticketQuery,
   workItemListQuery,
   createMeetingBody,
+  inviteMeetingParticipantsBody,
+  meetingMinutesBody,
 };

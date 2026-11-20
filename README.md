@@ -108,29 +108,47 @@ browser must allow notifications; users can revoke permission from browser
 site settings. Assignment notifications are sent to opted-in devices for both
 tasks and tickets.
 
-### Google Meet
+### In-app video meetings
 
-Meetings use the Google Meet REST API to create a Meet link when a meeting is
-scheduled. Joining opens that link in Google Meet; the app records attendance
-when the user requests the link. Video, microphone, and screen sharing run in
-Google Meet rather than being embedded in this app.
+Meetings use LiveKit rooms inside the Taskmanager meeting page. The browser
+publishes camera/microphone media to LiveKit, while the backend issues a
+short-lived room token for each authenticated meeting participant. Attendance
+is recorded after the participant connects and when they disconnect; the host
+can end the room for everyone.
 
-Enable the Google Meet REST API in the Google Cloud project. The OAuth client
-must be authorized by a Google account with the
-`https://www.googleapis.com/auth/meetings.space.created` scope. A client ID and
-client secret alone are not enough: obtain an offline OAuth refresh token for
-that scope, then set these variables in the backend/Vercel project:
+Create a LiveKit Cloud project (or configure a reachable self-hosted LiveKit
+server), then set these variables in the backend environment and Vercel
+project:
 
 ```text
-GOOGLE_CLIENT_ID=<oauth-client-id>
-GOOGLE_CLIENT_SECRET=<oauth-client-secret>
-GOOGLE_REFRESH_TOKEN=<authorized-user-refresh-token>
+LIVEKIT_URL=wss://<your-livekit-host>
+LIVEKIT_API_KEY=<server-api-key>
+LIVEKIT_API_SECRET=<server-api-secret>
 ```
 
-Keep the client secret and refresh token server-side; do not add a
-`NEXT_PUBLIC_` prefix. Apply the schema with `npm run db:migrate` before
-deploying the app code. The migration adds a place to store each generated
-Meet URL. Invitees remain limited to the caller's team visibility scope.
+Keep the API secret server-side; never add a `NEXT_PUBLIC_` prefix. The browser
+receives only the LiveKit URL and a short-lived room-scoped participant token.
+In LiveKit, configure a webhook to
+`https://<your-app-host>/api/meetings/livekit/webhook` and subscribe to
+`participant_joined`, `participant_left`, and `room_finished`; these signed
+events keep attendance accurate when someone closes a tab or loses connection.
+Run `npm run db:migrate` to add storage for meeting transcripts and AI minutes.
+
+### AI meeting minutes
+
+Set `OPENAI_API_KEY` in the backend environment (and Vercel backend variables
+when deployed). `OPENAI_MOM_MODEL` is optional; it defaults to `gpt-4o-mini`.
+After a meeting ends, the host can upload an audio recording up to 25 MB or
+paste its transcript. The backend transcribes uploaded audio and generates
+structured minutes with a summary, discussion topics, decisions, action items,
+risks, and open questions. The app does not record meetings automatically, so
+provide a recording or transcript to create the MOM. Keep the API key server-side
+and never add a `NEXT_PUBLIC_` prefix.
+
+After changing Vercel environment variables, redeploy the backend and frontend.
+The `GOOGLE_CLIENT_ID`,
+`GOOGLE_CLIENT_SECRET`, and `GOOGLE_REFRESH_TOKEN` variables are not used by
+the in-app meeting flow.
 
 public registration always creates an `EMPLOYEE`. A submitted role field is
 rejected; role assignment is never accepted from an unauthenticated client.

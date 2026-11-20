@@ -6,6 +6,8 @@ module.exports = (sequelize) => sequelize.define(
     id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
     title: { type: DataTypes.STRING(160), allowNull: false },
     agenda: { type: DataTypes.TEXT, allowNull: true },
+    transcript: { type: DataTypes.TEXT("long"), allowNull: true },
+    minutes: { type: DataTypes.JSON, allowNull: true },
     scheduledAt: { type: DataTypes.DATE, allowNull: false },
     durationMinutes: { type: DataTypes.SMALLINT.UNSIGNED, allowNull: false },
     status: {
