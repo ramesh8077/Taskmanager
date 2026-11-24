@@ -166,7 +166,7 @@ module.exports = {
       defaultValue: "Pending",
     });
     await queryInterface.changeColumn("tasks", "priority", {
-      type: DataTypes.ENUM("Low", "Medium", "High", "Urgent", "LOW", "MEDIUM", "HIGH", "URGENT"),
+      type: DataTypes.ENUM("Low", "Medium", "High", "Urgent"),
       allowNull: false,
       defaultValue: "Medium",
     });

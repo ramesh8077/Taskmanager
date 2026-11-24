@@ -100,15 +100,10 @@ module.exports = {
       allowNull: true,
     });
 
+    // Avoid a temporary ENUM containing both `Admin` and `ADMIN`: MySQL
+    // treats ENUM values as case-insensitive and rejects those as duplicates.
     await queryInterface.changeColumn("users", "role", {
-      type: DataTypes.ENUM(
-        "Admin",
-        "Member",
-        "SUPER_ADMIN",
-        "ADMIN",
-        "MANAGER",
-        "EMPLOYEE"
-      ),
+      type: DataTypes.STRING(32),
       allowNull: false,
       defaultValue: "EMPLOYEE",
     });

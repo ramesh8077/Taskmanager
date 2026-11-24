@@ -63,12 +63,12 @@ module.exports = (sequelize) => {
         },
       },
       priority: {
-        type: DataTypes.ENUM("Low", "Medium", "High", "Urgent", "LOW", "MEDIUM", "HIGH", "URGENT"),
+        type: DataTypes.ENUM("Low", "Medium", "High", "Urgent"),
         allowNull: false,
         defaultValue: "Medium",
         validate: {
           isIn: {
-            args: [["Low", "Medium", "High", "Urgent", "LOW", "MEDIUM", "HIGH", "URGENT"]],
+            args: [["Low", "Medium", "High", "Urgent"]],
             msg: "Priority must be 'Low', 'Medium', 'High', or 'Urgent'.",
           },
         },
