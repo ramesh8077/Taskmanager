@@ -1,6 +1,20 @@
 const { Op } = require("sequelize");
 const db = require("../models");
 
+async function listMentionableMembers(req, res) {
+  try {
+    const members = await db.User.findAll({
+      where: { status: "ACTIVE", isActive: true },
+      attributes: ["id", "name"],
+      order: [["name", "ASC"], ["id", "ASC"]],
+    });
+    return res.json({ success: true, data: { members } });
+  } catch (error) {
+    console.error("List chat members failed:", error.message);
+    return res.status(500).json({ success: false, message: "Unable to load team members." });
+  }
+}
+
 async function listMessages(req, res) {
   try {
     const before = Number(req.query.before);
@@ -41,4 +55,4 @@ async function createMessage(req, res) {
   }
 }
 
-module.exports = { listMessages, createMessage };
+module.exports = { listMentionableMembers, listMessages, createMessage };

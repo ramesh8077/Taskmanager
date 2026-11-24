@@ -1,35 +1,107 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import API from "@/lib/axios";
 import { useAuth } from "@/context/AuthContext";
 
-type ChatMessage = { id: number; userId: number; message: string; mentions: number[]; createdAt: string; author: { id: number; name: string } };
+type ChatMember = { id: number; name: string };
+type ChatMessage = {
+  id: number;
+  userId: number;
+  message: string;
+  mentions: number[];
+  createdAt: string;
+  author: { id: number; name: string };
+};
+type ActiveMention = { start: number; end: number; query: string };
+
+function getActiveMention(value: string, caret: number): ActiveMention | null {
+  const beforeCaret = value.slice(0, caret);
+  const match = /(?:^|\s)@([^@]*)$/.exec(beforeCaret);
+  if (!match) return null;
+  return {
+    start: caret - match[1].length - 1,
+    end: caret,
+    query: match[1],
+  };
+}
 
 export default function TeamChat() {
   const { user } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [members, setMembers] = useState<ChatMember[]>([]);
   const [draft, setDraft] = useState("");
+  const [activeMention, setActiveMention] = useState<ActiveMention | null>(null);
+  const [activeMemberIndex, setActiveMemberIndex] = useState(0);
   const [error, setError] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLInputElement>(null);
 
   const load = useCallback(async () => {
     try {
-      const response = await API.get<{ data: { messages: ChatMessage[] } }>("/chat/messages");
-      setMessages(response.data.data.messages || []);
-    } catch { setError("Chat load nahi ho payi. Thodi der baad try karein."); }
+      const [messageResponse, memberResponse] = await Promise.all([
+        API.get<{ data: { messages: ChatMessage[] } }>("/chat/messages"),
+        API.get<{ data: { members: ChatMember[] } }>("/chat/members"),
+      ]);
+      setMessages(messageResponse.data.data.messages || []);
+      setMembers(memberResponse.data.data.members || []);
+    } catch {
+      setError("Chat ya team members load nahi ho paaye. Thodi der baad try karein.");
+    }
   }, []);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     const receive = (event: Event) => {
       const message = (event as CustomEvent<ChatMessage>).detail;
-      if (message?.id) setMessages((items) => items.some((item) => item.id === message.id) ? items : [...items, message].slice(-100));
+      if (message?.id) {
+        setMessages((items) => items.some((item) => item.id === message.id)
+          ? items
+          : [...items, message].slice(-100));
+      }
     };
     window.addEventListener("taskmanager:chat-message", receive);
     return () => window.removeEventListener("taskmanager:chat-message", receive);
   }, []);
   useEffect(() => { bottom.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
+
+  const filteredMembers = activeMention
+    ? members.filter((member) => member.name.toLowerCase().includes(activeMention.query.trim().toLowerCase()))
+    : [];
+
+  const selectMember = (member: ChatMember) => {
+    if (!activeMention) return;
+    const before = draft.slice(0, activeMention.start);
+    const after = draft.slice(activeMention.end);
+    const nextDraft = `${before}@${member.name} ${after}`;
+    const nextCaret = before.length + member.name.length + 2;
+    setDraft(nextDraft);
+    setActiveMention(null);
+    requestAnimationFrame(() => {
+      input.current?.focus();
+      input.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const handleInputKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (!activeMention || filteredMembers.length === 0) {
+      if (event.key === "Escape") setActiveMention(null);
+      return;
+    }
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setActiveMemberIndex((index) => (index + 1) % filteredMembers.length);
+    } else if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveMemberIndex((index) => (index - 1 + filteredMembers.length) % filteredMembers.length);
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      selectMember(filteredMembers[activeMemberIndex] || filteredMembers[0]);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setActiveMention(null);
+    }
+  };
 
   const send = async (event: FormEvent) => {
     event.preventDefault();
@@ -39,23 +111,61 @@ export default function TeamChat() {
     try {
       const response = await API.post<{ data: { message: ChatMessage } }>("/chat/messages", { message });
       const created = response.data.data.message;
-      setMessages((items) => items.some((item) => item.id === created.id) ? items : [...items, created].slice(-100));
+      setMessages((items) => items.some((item) => item.id === created.id)
+        ? items
+        : [...items, created].slice(-100));
       setDraft("");
+      setActiveMention(null);
     } catch (err: unknown) {
       setError((err as { response?: { data?: { message?: string } } }).response?.data?.message || "Message send nahi hua.");
     }
   };
 
   return <section style={{ maxWidth: 900, margin: "24px auto", padding: 24, width: "100%", background: "var(--surface-card)", border: "1px solid var(--border-subtle)", borderRadius: 16 }}>
-    <header style={{ marginBottom: 18 }}><h1 style={{ fontSize: 24, fontWeight: 700 }}>Team chat</h1><p style={{ color: "var(--text-secondary)" }}>Sabhi active team members ke saath baat karein. Kisi ko notify karne ke liye @ ke baad unka poora naam likhein.</p></header>
+    <header style={{ marginBottom: 18 }}>
+      <h1 style={{ fontSize: 24, fontWeight: 700 }}>Team chat</h1>
+      <p style={{ color: "var(--text-secondary)" }}>Sabhi active team members ke saath baat karein. @ type karke kisi member ko mention karein.</p>
+    </header>
     <div aria-live="polite" style={{ height: "min(60vh, 620px)", overflowY: "auto", display: "flex", flexDirection: "column", gap: 10, padding: 14, background: "var(--surface-primary)", borderRadius: 12 }}>
       {messages.length ? messages.map((item) => <article key={item.id} style={{ alignSelf: item.userId === user?.id ? "flex-end" : "flex-start", maxWidth: "85%", padding: "10px 14px", borderRadius: 12, background: item.userId === user?.id ? "var(--accent)" : "var(--surface-card)", color: item.userId === user?.id ? "white" : "var(--text-primary)" }}>
-        <strong style={{ fontSize: 12, display: "block", marginBottom: 3 }}>{item.author?.name || "Team member"}</strong><p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.message}</p><time style={{ opacity: .7, fontSize: 11 }}>{new Date(item.createdAt).toLocaleString()}</time>
+        <strong style={{ fontSize: 12, display: "block", marginBottom: 3 }}>{item.author?.name || "Team member"}</strong>
+        <p style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{item.message}</p>
+        <time style={{ opacity: .7, fontSize: 11 }}>{new Date(item.createdAt).toLocaleString()}</time>
       </article>) : <p style={{ margin: "auto", color: "var(--text-secondary)" }}>Abhi chat khaali hai. Pehla message bhejein.</p>}
       <div ref={bottom} />
     </div>
     <form onSubmit={send} style={{ display: "flex", gap: 10, marginTop: 14 }}>
-      <input value={draft} onChange={(event) => setDraft(event.target.value)} maxLength={2000} placeholder="Message likhein... @Name se mention karein" aria-label="Chat message" style={{ flex: 1, minWidth: 0, padding: 12, borderRadius: 10, border: "1px solid var(--border-subtle)", background: "var(--surface-primary)", color: "var(--text-primary)" }} />
+      <div style={{ position: "relative", flex: 1, minWidth: 0 }}>
+        {activeMention && <div role="listbox" aria-label="Team members" style={{ position: "absolute", zIndex: 2, left: 0, right: 0, bottom: "calc(100% + 8px)", maxHeight: 240, overflowY: "auto", padding: 4, border: "1px solid var(--border-subtle)", borderRadius: 10, background: "var(--surface-card)", boxShadow: "0 8px 24px rgba(0,0,0,.16)" }}>
+          {filteredMembers.length ? filteredMembers.map((member, index) => <button
+            key={member.id}
+            type="button"
+            role="option"
+            aria-selected={index === activeMemberIndex}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => selectMember(member)}
+            style={{ display: "block", width: "100%", padding: "9px 10px", border: 0, borderRadius: 7, textAlign: "left", color: "var(--text-primary)", background: index === activeMemberIndex ? "var(--surface-primary)" : "transparent", cursor: "pointer" }}
+          >{member.name}</button>) : <p style={{ padding: "9px 10px", color: "var(--text-secondary)" }}>Koi member nahi mila.</p>}
+        </div>}
+        <input
+          ref={input}
+          value={draft}
+          onChange={(event) => {
+            const nextDraft = event.currentTarget.value;
+            const caret = event.currentTarget.selectionStart ?? nextDraft.length;
+            setDraft(nextDraft);
+            setActiveMention(getActiveMention(nextDraft, caret));
+            setActiveMemberIndex(0);
+          }}
+          onKeyDown={handleInputKeyDown}
+          maxLength={2000}
+          placeholder="Message likhein... @ type karein"
+          aria-label="Chat message"
+          aria-autocomplete="list"
+          aria-expanded={Boolean(activeMention)}
+          style={{ width: "100%", boxSizing: "border-box", padding: 12, borderRadius: 10, border: "1px solid var(--border-subtle)", background: "var(--surface-primary)", color: "var(--text-primary)" }}
+        />
+      </div>
       <button type="submit" disabled={!draft.trim()} style={{ padding: "0 20px", borderRadius: 10, color: "white", background: "var(--accent)", opacity: draft.trim() ? 1 : .5 }}>Send</button>
     </form>
     {error && <p role="alert" style={{ color: "#dc2626", marginTop: 8 }}>{error}</p>}
