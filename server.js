@@ -36,6 +36,7 @@ const workItemsRoutes = require("./src/routes/workItemsRoutes");
 const reportRoutes = require("./src/routes/reportRoutes");
 const settingsRoutes = require("./src/routes/settingsRoutes");
 const meetingRoutes = require("./src/routes/meetingRoutes");
+const chatRoutes = require("./src/routes/chatRoutes");
 
 // ─── Initialize Express App ─────────────────────────────────────────────────
 
@@ -91,6 +92,7 @@ app.use("/api/work-items", workItemsRoutes);
 app.use("/api/reports", reportRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/meetings", meetingRoutes);
+app.use("/api/chat", chatRoutes);
 app.use((error, req, res, next) => {
   console.error("Request middleware failed:", error);
   if (res.headersSent) return next(error);
@@ -128,6 +130,7 @@ const startServer = async () => {
       "202611160002-push-subscriptions.js",
       "202611170001-meetings.js",
       "202611170003-ticket-attachment-blobs.js",
+      "202611240001-team-chat.js",
     ];
     const missingMigrations = requiredMigrations.filter(
       (migration) => !migrationRows.some((row) => row.migration_name === migration)

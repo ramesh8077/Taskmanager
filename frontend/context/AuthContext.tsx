@@ -115,7 +115,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           style={{
             width: "min(380px, calc(100vw - 32px))",
             padding: "14px 16px",
-            border: "1px solid var(--border-subtle)",
+            border: notification.type === "chat_mention" ? "2px solid #f97316" : "1px solid var(--border-subtle)",
             borderRadius: 12,
             background: "var(--surface-card)",
             color: "var(--text-primary)",
@@ -125,7 +125,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }}
           aria-label={`${notification.title}: ${notification.message}. Click to open.`}
         >
-          <strong style={{ display: "block", marginBottom: 4 }}>{notification.title}</strong>
+            <strong style={{ display: "block", marginBottom: 4, color: notification.type === "chat_mention" ? "#f97316" : undefined }}>{notification.type === "chat_mention" ? "🔔 You were mentioned" : notification.title}</strong>
           <span style={{ color: "var(--text-secondary)", fontSize: 13 }}>{notification.message}</span>
           <span style={{ display: "block", marginTop: 8, color: "var(--accent)", fontSize: 12 }}>Click to view</span>
         </button>
@@ -159,8 +159,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         socket.onopen = () => { reconnectDelay = 1000; };
         socket.onmessage = (event) => {
           try {
-            const payload = JSON.parse(String(event.data)) as { type?: string; notification?: NotificationMessage };
+            const payload = JSON.parse(String(event.data)) as { type?: string; notification?: NotificationMessage; message?: unknown };
             if (payload.type === "notification") handleNotification(payload.notification);
+            if (payload.type === "chat_message" && payload.message) window.dispatchEvent(new CustomEvent("taskmanager:chat-message", { detail: payload.message }));
           } catch {
             // Ignore malformed messages and keep the connection alive.
           }

@@ -4,11 +4,13 @@ import { useState, type ReactNode } from "react";
 import Sidebar from "@/components/Sidebar";
 import NotificationCenter from "@/components/NotificationCenter";
 import { useTheme } from "@/context/ThemeContext";
+import { useRouter } from "next/navigation";
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
   const { isDark, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const router = useRouter();
 
   return (
     <div className="dashboard-shell">
@@ -38,6 +40,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             {collapsed ? "»" : "«"}
           </button>
           <span className="dashboard-topbar-title">Task Manager</span>
+          <button type="button" className="dashboard-theme-button" onClick={() => router.push("/dashboard/chat")}>Team chat</button>
           <NotificationCenter />
           <button
             type="button"

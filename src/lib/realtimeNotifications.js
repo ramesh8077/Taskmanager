@@ -78,6 +78,7 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
 
   wss.on("connection", (client, _request, session) => {
     let lastId = session.lastId;
+    let lastChatId = 0;
     let querying = false;
 
     const poll = async () => {
@@ -96,6 +97,15 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
           if (client.readyState === WebSocket.OPEN) {
             client.send(JSON.stringify({ type: "notification", notification }));
           }
+        }
+        const messages = await db.ChatMessage.findAll({
+          where: { id: { [Op.gt]: lastChatId } },
+          include: [{ model: db.User, as: "author", attributes: ["id", "name"] }],
+          order: [["id", "ASC"]], limit: 50,
+        });
+        for (const message of messages) {
+          lastChatId = Math.max(lastChatId, Number(message.id));
+          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: "chat_message", message: message.get({ plain: true }) }));
         }
       } catch (error) {
         console.error("Realtime notification lookup failed:", error.message);

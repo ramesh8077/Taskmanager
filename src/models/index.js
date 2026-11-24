@@ -39,6 +39,7 @@ db.TicketComment = require("./ticketComment.model")(sequelize);
 db.TicketHistory = require("./ticketHistory.model")(sequelize);
 db.TicketAttachment = require("./ticketAttachment.model")(sequelize);
 db.Notification = require("./notification.model")(sequelize);
+db.ChatMessage = require("./chatMessage.model")(sequelize);
 db.PushSubscription = require("./pushSubscription.model")(sequelize);
 db.Meeting = require("./meeting.model")(sequelize);
 db.MeetingParticipant = require("./meetingParticipant.model")(sequelize);
@@ -334,6 +335,8 @@ db.TicketAttachment.belongsTo(db.User, { foreignKey: "uploadedBy", as: "uploader
 db.User.hasMany(db.TicketAttachment, { foreignKey: "uploadedBy", as: "ticketAttachments" });
 db.User.hasMany(db.Notification, { foreignKey: "userId", as: "notifications", onDelete: "CASCADE" });
 db.Notification.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.User.hasMany(db.ChatMessage, { foreignKey: "userId", as: "chatMessages" });
+db.ChatMessage.belongsTo(db.User, { foreignKey: "userId", as: "author" });
 db.User.hasMany(db.PushSubscription, { foreignKey: "userId", as: "pushSubscriptions", onDelete: "CASCADE" });
 db.PushSubscription.belongsTo(db.User, { foreignKey: "userId", as: "user" });
 db.User.hasMany(db.Meeting, { foreignKey: "hostId", as: "hostedMeetings" });
