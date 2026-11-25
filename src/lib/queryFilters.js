@@ -217,7 +217,7 @@ async function buildTaskQuery({ actor, User, DeadlineHistory, filters = {} }) {
       { title: { [Op.like]: `%${term}%` } },
       { description: { [Op.like]: `%${term}%` } },
       { "$assignee.name$": { [Op.like]: `%${term}%` } },
-      { "$assignee.employeeId$": { [Op.like]: `%${term}%` } },
+      { "$assignee.employee_id$": { [Op.like]: `%${term}%` } },
     ];
     if (/^\d+$/.test(term)) searchConditions.push({ id: Number(term) });
     conditions.push({ [Op.or]: searchConditions });
@@ -287,7 +287,7 @@ async function buildTicketQuery({ actor, User, filters = {} }) {
     const clauses = [
       { title: { [Op.like]: `%${term}%` } },
       { "$assignee.name$": { [Op.like]: `%${term}%` } },
-      { "$assignee.employeeId$": { [Op.like]: `%${term}%` } },
+      { "$assignee.employee_id$": { [Op.like]: `%${term}%` } },
     ];
     if (/^\d+$/.test(term)) {
       clauses.push({ id: Number(term) });

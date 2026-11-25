@@ -185,7 +185,9 @@ async function buildWorkItemWhere({ view, actor, User, scope, filters, includeSt
       { title: { [Op.like]: `%${term}%` } },
       { description: { [Op.like]: `%${term}%` } },
       { "$assignee.name$": { [Op.like]: `%${term}%` } },
-      { "$assignee.employeeId$": { [Op.like]: `%${term}%` } },
+      // Nested association paths are emitted as SQL column references by Sequelize.
+      // The users table uses underscored columns, so use the physical column name here.
+      { "$assignee.employee_id$": { [Op.like]: `%${term}%` } },
     ];
     if (/^\d+$/.test(term)) {
       clauses.push({ id: Number(term) });
