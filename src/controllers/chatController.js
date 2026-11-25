@@ -20,7 +20,7 @@ async function listMessages(req, res) {
     const before = Number(req.query.before);
     const where = before > 0 ? { id: { [Op.lt]: before } } : {};
     const rows = await db.ChatMessage.findAll({ where, include: [{ model: db.User, as: "author", attributes: ["id", "name"] }], order: [["id", "DESC"]], limit: 100 });
-    return res.json({ success: true, data: { messages: rows.reverse() } });
+    return res.json({ success: true, data: { messages: rows } });
   } catch (error) {
     console.error("List chat messages failed:", error.message);
     return res.status(500).json({ success: false, message: "Unable to load team chat." });

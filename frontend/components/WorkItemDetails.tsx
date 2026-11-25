@@ -221,7 +221,10 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
             }));
             setHistory(
               [...ticketHistory, ...deadlineHistory]
-                .sort((left, right) => new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()),
+                .sort((left, right) =>
+                  new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
+                  String(right.id).localeCompare(String(left.id), undefined, { numeric: true }),
+                ),
             );
             setComments(data.data.ticket?.comments || []);
           }
@@ -308,8 +311,8 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
       user: entry.changedByUser?.name || entry.user?.name || "Team member",
     }));
     if (!entries.some((entry) => !entry.oldValue)) {
-      const initialStatus = entries[0]?.oldValue || (entries.length ? "" : item.type === "task" ? "Pending" : "Open");
-      if (initialStatus) timeline.unshift({ id: `initial-${item.id}`, status: initialStatus, createdAt: item.createdAt, user: "Item created" });
+      const initialStatus = entries[entries.length - 1]?.oldValue || (entries.length ? "" : item.type === "task" ? "Pending" : "Open");
+      if (initialStatus) timeline.push({ id: `initial-${item.id}`, status: initialStatus, createdAt: item.createdAt, user: "Item created" });
     }
     return timeline;
   }, [history, item]);

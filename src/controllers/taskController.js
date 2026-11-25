@@ -1158,7 +1158,7 @@ const getTaskHistory = async (req, res) => {
           attributes: ["id", "name", "email"],
         },
       ],
-      order: [["createdAt", "ASC"]],
+      order: [["createdAt", "DESC"], ["id", "DESC"]],
     });
     const deadlineChanges = await DeadlineHistory.findAll({
       where: { taskId: id },
@@ -1167,7 +1167,7 @@ const getTaskHistory = async (req, res) => {
         as: "changedByUser",
         attributes: ["id", "name"],
       }],
-      order: [["changedAt", "ASC"]],
+      order: [["changedAt", "DESC"], ["id", "DESC"]],
     });
     const historyEntries = history.map((entry) => entry.get({ plain: true }));
     for (const change of deadlineChanges) {
@@ -1193,7 +1193,8 @@ const getTaskHistory = async (req, res) => {
       }
     }
     historyEntries.sort((left, right) =>
-      new Date(left.createdAt).getTime() - new Date(right.createdAt).getTime()
+      new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime() ||
+      String(right.id).localeCompare(String(left.id), undefined, { numeric: true })
     );
 
     return res.status(200).json({

@@ -299,7 +299,7 @@ async function getMeeting(req, res) {
     const attendance = await db.MeetingAttendance.findAll({
       where: { meetingId: meeting.id },
       include: [{ model: db.User, as: "user", attributes: ["id", "name", "position"] }],
-      order: [["joinedAt", "ASC"]],
+      order: [["joinedAt", "DESC"], ["id", "DESC"]],
     });
     return res.json({ success: true, data: { meeting: publicMeeting(meeting, { includeMinutes: true }), attendance } });
   } catch (error) {

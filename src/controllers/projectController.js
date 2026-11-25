@@ -139,6 +139,8 @@ const getProject = async (req, res) => {
         {
           model: Task,
           as: "tasks",
+          separate: true,
+          order: [["createdAt", "DESC"], ["id", "DESC"]],
           ...(visibleIds ? {
             where: { assignedTo: { [Op.in]: visibleIds } },
             required: false,
@@ -199,6 +201,8 @@ const getAllProjects = async (req, res) => {
         {
           model: Task,
           as: "tasks",
+          separate: true,
+          order: [["createdAt", "DESC"], ["id", "DESC"]],
           ...(visibleIds ? {
             where: { assignedTo: { [Op.in]: visibleIds } },
             required: false,
