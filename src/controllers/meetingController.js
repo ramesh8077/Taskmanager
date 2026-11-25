@@ -110,14 +110,23 @@ const MOM_SCHEMA = {
 };
 
 async function openAIRequest(path, options) {
-  const response = await fetch(`https://api.openai.com/v1/${path}`, {
-    ...options,
-    headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, ...options.headers },
-  });
+  let response;
+  try {
+    response = await fetch(`https://api.openai.com/v1/${path}`, {
+      ...options,
+      headers: { Authorization: `Bearer ${process.env.OPENAI_API_KEY}`, ...options.headers },
+    });
+  } catch (cause) {
+    const error = new Error(cause instanceof Error ? cause.message : "Could not connect to OpenAI.");
+    error.stage = path;
+    throw error;
+  }
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     const error = new Error(data.error?.message || "OpenAI request failed.");
     error.status = response.status;
+    error.stage = path;
+    error.requestId = response.headers.get("x-request-id");
     throw error;
   }
   return data;
@@ -198,7 +207,25 @@ async function listMeetings(req, res) {
       limit: 100,
       subQuery: false,
     });
-    return res.json({ success: true, data: { meetings: meetings.map(publicMeeting) } });
+    const attendance = meetingIds.length ? await db.MeetingAttendance.findAll({
+      where: { meetingId: { [Op.in]: meetingIds } },
+      attributes: ["id", "meetingId", "userId", "joinedAt", "leftAt"],
+      include: [{ model: db.User, as: "user", attributes: ["id", "name", "position"] }],
+      order: [["joinedAt", "ASC"], ["id", "ASC"]],
+    }) : [];
+    const attendanceByMeeting = new Map();
+    for (const entry of attendance) {
+      const rows = attendanceByMeeting.get(Number(entry.meetingId)) || [];
+      rows.push(entry.get({ plain: true }));
+      attendanceByMeeting.set(Number(entry.meetingId), rows);
+    }
+    const result = meetings.map((meeting) => ({
+      ...publicMeeting(meeting),
+      attendance: attendanceByMeeting.get(Number(meeting.id)) || [],
+      hasMinutes: Boolean(meeting.minutes),
+      minutes: meeting.status === "ENDED" ? meeting.minutes : null,
+    }));
+    return res.json({ success: true, data: { meetings: result } });
   } catch (error) {
     console.error("List meetings failed:", error);
     return failure(res, 500, "MEETINGS_UNAVAILABLE", "Unable to load meetings.");
@@ -342,8 +369,16 @@ async function generateMeetingMinutes(req, res) {
       data: { meeting: publicMeeting(updatedMeeting, { includeMinutes: true }) },
     });
   } catch (error) {
-    console.error("Generate meeting minutes failed:", error.message);
-    return failure(res, 502, "AI_MOM_FAILED", "AI could not generate the meeting minutes. Check the API key and try again.");
+    const stage = error.stage || "meeting minutes";
+    const safeMessage = String(error.message || "Unknown AI error.").slice(0, 500);
+    console.error("Generate meeting minutes failed:", {
+      stage,
+      status: error.status || null,
+      requestId: error.requestId || null,
+      message: safeMessage,
+    });
+    const userMessage = `AI ${stage} failed: ${safeMessage}`;
+    return failure(res, 502, stage === "audio/transcriptions" ? "AI_TRANSCRIPTION_FAILED" : "AI_MOM_FAILED", userMessage);
   }
 }
 

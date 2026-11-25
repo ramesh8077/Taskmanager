@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import toast from "react-hot-toast";
 import API from "@/lib/axios";
 import ProtectedRoute from "@/components/ProtectedRoute";
+import { useAuth } from "@/context/AuthContext";
 import styles from "./Meetings.module.css";
 
 interface Person {
@@ -21,6 +22,16 @@ interface Participant {
   user: Person;
 }
 
+interface MeetingMinutes {
+  summary: string;
+  discussionTopics: string[];
+  decisions: string[];
+  actionItems: Array<{ task: string; owner: string; dueDate: string; priority: string }>;
+  risksAndBlockers: string[];
+  openQuestions: string[];
+  nextMeeting: string;
+}
+
 interface Meeting {
   id: number;
   title: string;
@@ -31,6 +42,17 @@ interface Meeting {
   hostId: number;
   host: Person;
   participants: Participant[];
+  startedAt: string | null;
+  endedAt: string | null;
+  hasMinutes: boolean;
+  attendance: Array<{
+    id: number;
+    userId: number;
+    joinedAt: string;
+    leftAt: string | null;
+    user: { id: number; name: string; position: string };
+  }>;
+  minutes?: MeetingMinutes | null;
 }
 
 function formatDate(value: string) {
@@ -40,6 +62,128 @@ function formatDate(value: string) {
   }).format(new Date(value));
 }
 
+function actualDuration(meeting: Meeting) {
+  if (meeting.status !== "ENDED" || !meeting.startedAt || !meeting.endedAt) return null;
+  const minutes = Math.max(0, Math.round((new Date(meeting.endedAt).getTime() - new Date(meeting.startedAt).getTime()) / 60000));
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return hours ? `${hours} hr ${remainder} min` : `${remainder} min`;
+}
+
+function isPastMeeting(meeting: Meeting, now: number) {
+  if (meeting.status === "ENDED" || meeting.status === "CANCELLED") return true;
+  const plannedEnd = new Date(meeting.scheduledAt).getTime() + meeting.durationMinutes * 60000;
+  return Number.isFinite(plannedEnd) && plannedEnd <= now;
+}
+
+function meetingDisplayStatus(meeting: Meeting, now: number) {
+  if (isPastMeeting(meeting, now) && meeting.status === "SCHEDULED") return "MISSED";
+  if (isPastMeeting(meeting, now) && meeting.status === "LIVE") return "OVERDUE";
+  return meeting.status;
+}
+
+function meetingAttendees(meeting: Meeting) {
+  const peopleById = new Map<number, string>();
+  for (const entry of meeting.attendance || []) {
+    if (entry.user?.name) peopleById.set(entry.userId, entry.user.name);
+  }
+  return [...peopleById.values()];
+}
+
+function MeetingHistoryRow({ meeting, now, isHost, onOpenMeeting }: {
+  meeting: Meeting;
+  now: number;
+  isHost: boolean;
+  onOpenMeeting: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [minutes, setMinutes] = useState<MeetingMinutes | null>(meeting.minutes || null);
+  const [loadingMinutes, setLoadingMinutes] = useState(false);
+  const [minutesError, setMinutesError] = useState("");
+  const invited = meeting.participants.filter((person) => person.participantRole !== "HOST");
+  const attendees = meetingAttendees(meeting);
+  const displayStatus = meetingDisplayStatus(meeting, now);
+
+  async function toggleMinutes() {
+    if (!meeting.hasMinutes) {
+      onOpenMeeting();
+      return;
+    }
+    if (expanded) {
+      setExpanded(false);
+      return;
+    }
+    setExpanded(true);
+    if (minutes) return;
+    setLoadingMinutes(true);
+    setMinutesError("");
+    try {
+      const response = await API.get(`/meetings/${meeting.id}`);
+      setMinutes(response.data?.data?.meeting?.minutes || null);
+      if (!response.data?.data?.meeting?.minutes) setMinutesError("MOM data is unavailable for this meeting.");
+    } catch (error) {
+      setMinutesError(apiMessage(error, "MOM load nahi ho paayi. Please try again."));
+    } finally {
+      setLoadingMinutes(false);
+    }
+  }
+
+  async function copyMinutes() {
+    if (!minutes) return;
+    const text = [
+      `Minutes of Meeting: ${meeting.title}`,
+      minutes.summary,
+      ...minutes.discussionTopics.map((item) => `Discussion: ${item}`),
+      ...minutes.decisions.map((item) => `Decision: ${item}`),
+      ...minutes.actionItems.map((item) => `Action: ${item.task} — ${item.owner}; due ${item.dueDate}; ${item.priority}`),
+      ...minutes.risksAndBlockers.map((item) => `Risk or blocker: ${item}`),
+      ...minutes.openQuestions.map((item) => `Open question: ${item}`),
+      minutes.nextMeeting ? `Next meeting: ${minutes.nextMeeting}` : "",
+    ].filter(Boolean).join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.success("MOM copied.");
+    } catch {
+      toast.error("MOM copy nahi ho paayi.");
+    }
+  }
+
+  return <>
+    <tr>
+      <td className={styles.historyMeetingCell}>
+        <strong>{meeting.title}</strong>
+        {meeting.agenda && <span>{meeting.agenda}</span>}
+      </td>
+      <td>{meeting.hasMinutes
+        ? <div className={styles.momCell}><p className={styles.momSummaryInline}>{minutes?.summary || "AI minutes are ready."}</p><button type="button" className={styles.momTableButton} aria-expanded={expanded} onClick={() => void toggleMinutes()}>{loadingMinutes ? "Loading…" : expanded ? "Hide full MOM" : "View full MOM"}</button></div>
+        : meeting.status === "ENDED" && isHost
+          ? <button type="button" className={styles.momTableButton} onClick={onOpenMeeting}>Create MOM</button>
+          : <span className={styles.minutesPending}>{displayStatus === "OVERDUE" ? "Overdue · MOM after meeting ends" : displayStatus === "MISSED" ? "Not started · no MOM" : meeting.status === "ENDED" ? "MOM not added" : ["SCHEDULED", "LIVE"].includes(meeting.status) ? "Available after meeting" : "MOM unavailable"}</span>}
+      </td>
+      <td>{formatDate(meeting.scheduledAt)}
+        {meeting.endedAt && meeting.status === "ENDED" && <small className={styles.tableSubtext}>Ended {formatDate(meeting.endedAt)}</small>}
+      </td>
+      <td>{meeting.host?.name || "—"}</td>
+      <td><strong>{invited.length}</strong>{invited.length > 0 && <small className={styles.tableSubtext}>{invited.map((person) => person.user?.name).filter(Boolean).join(", ")}</small>}</td>
+      <td><strong>{attendees.length}</strong>{attendees.length > 0 && <small className={styles.tableSubtext}>{attendees.join(", ")}</small>}{!attendees.length && <small className={styles.tableSubtext}>No attendance recorded</small>}</td>
+      <td>{actualDuration(meeting) || (meeting.status === "CANCELLED" ? "—" : `${meeting.durationMinutes} min planned`)}</td>
+      <td><span className={`${styles.status} ${displayStatus === "ENDED" ? styles.ended : displayStatus === "CANCELLED" ? styles.cancelled : displayStatus === "LIVE" ? styles.live : displayStatus === "OVERDUE" ? styles.overdue : displayStatus === "MISSED" ? styles.ended : ""}`}>{displayStatus === "ENDED" ? "Completed" : displayStatus === "CANCELLED" ? "Cancelled" : displayStatus === "OVERDUE" ? "Overdue" : displayStatus === "MISSED" ? "Not started" : displayStatus === "LIVE" ? "Live" : "Upcoming"}</span></td>
+      <td><button type="button" className={styles.tableAction} onClick={onOpenMeeting}>Details</button></td>
+    </tr>
+    {expanded && <tr className={styles.momExpandedRow}><td colSpan={9}>
+      {loadingMinutes ? <p>Loading meeting minutes…</p> : minutesError ? <p role="alert">{minutesError}</p> : minutes ? <div className={styles.momTableContent}>
+        <div className={styles.momSummaryBlock}><div><strong>Minutes of Meeting</strong><p>{minutes.summary}</p></div><button type="button" className={styles.tableAction} onClick={() => void copyMinutes()}>Copy MOM</button></div>
+        {minutes.discussionTopics.length > 0 && <div><strong>Discussion topics</strong><ul>{minutes.discussionTopics.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
+        {minutes.decisions.length > 0 && <div><strong>Decisions</strong><ul>{minutes.decisions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
+        {minutes.actionItems.length > 0 && <div><strong>Action items</strong><ul>{minutes.actionItems.map((item, index) => <li key={`${index}-${item.task}`}>{item.task} · {item.owner} · Due {item.dueDate} · {item.priority}</li>)}</ul></div>}
+        {minutes.risksAndBlockers.length > 0 && <div><strong>Risks and blockers</strong><ul>{minutes.risksAndBlockers.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
+        {minutes.openQuestions.length > 0 && <div><strong>Open questions</strong><ul>{minutes.openQuestions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
+        {minutes.nextMeeting && <div><strong>Next meeting</strong><p>{minutes.nextMeeting}</p></div>}
+      </div> : null}
+    </td></tr>}
+  </>;
+}
+
 function apiMessage(error: unknown, fallback: string) {
   const response = (error as { response?: { data?: { message?: string } } })?.response;
   return response?.data?.message || fallback;
@@ -47,6 +191,7 @@ function apiMessage(error: unknown, fallback: string) {
 
 export default function MeetingWorkspace() {
   const router = useRouter();
+  const { user } = useAuth();
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [selectedPeople, setSelectedPeople] = useState<number[]>([]);
@@ -54,13 +199,21 @@ export default function MeetingWorkspace() {
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [query, setQuery] = useState("");
-  const [meetingView, setMeetingView] = useState<"all" | "upcoming" | "history">("upcoming");
+  const [meetingView, setMeetingView] = useState<"all" | "upcoming" | "history">("all");
   const [meetingSearch, setMeetingSearch] = useState("");
+  const [localNow, setLocalNow] = useState("");
+  const [now, setNow] = useState(0);
 
   useEffect(() => {
+    setNow(Date.now());
+    const interval = window.setInterval(() => setNow(Date.now()), 30000);
+    const now = new Date();
+    now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+    setLocalNow(now.toISOString().slice(0, 16));
     const params = new URLSearchParams(window.location.search);
     if (params.get("create") === "1") setShowForm(true);
     if (params.get("view") === "history") setMeetingView("history");
+    return () => window.clearInterval(interval);
   }, []);
 
   const loadData = useCallback(async () => {
@@ -95,11 +248,13 @@ export default function MeetingWorkspace() {
   const searchedMeetings = meetings.filter((meeting) =>
     !searchTerm || `${meeting.title} ${meeting.agenda || ""} ${meeting.host?.name || ""}`.toLowerCase().includes(searchTerm),
   );
-  const upcoming = searchedMeetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status));
-  const history = searchedMeetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status));
-  const liveCount = meetings.filter((meeting) => meeting.status === "LIVE").length;
+  const upcoming = searchedMeetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status) && !isPastMeeting(meeting, now))
+    .sort((a, b) => Number(b.status === "LIVE") - Number(a.status === "LIVE") || new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime());
+  const history = searchedMeetings.filter((meeting) => isPastMeeting(meeting, now))
+    .sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime());
+  const liveCount = upcoming.filter((meeting) => meeting.status === "LIVE").length;
   const visibleMeetings = meetingView === "all"
-    ? searchedMeetings
+    ? [...searchedMeetings].sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime())
     : meetingView === "upcoming"
       ? upcoming
       : history;
@@ -158,9 +313,9 @@ export default function MeetingWorkspace() {
 
         {!loading && <div className={styles.summaryGrid} aria-label="Meeting summary">
           <article className={styles.summaryCard}><span>All meetings</span><strong>{meetings.length}</strong></article>
-          <article className={styles.summaryCard}><span>Upcoming</span><strong>{meetings.filter((meeting) => meeting.status === "SCHEDULED").length}</strong></article>
+          <article className={styles.summaryCard}><span>Upcoming</span><strong>{meetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status) && !isPastMeeting(meeting, now)).length}</strong></article>
           <article className={styles.summaryCard}><span>Live now</span><strong className={liveCount ? styles.liveNumber : ""}>{liveCount}</strong></article>
-          <article className={styles.summaryCard}><span>Past meetings</span><strong>{meetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status)).length}</strong></article>
+          <article className={styles.summaryCard}><span>Past meetings</span><strong>{meetings.filter((meeting) => isPastMeeting(meeting, now)).length}</strong></article>
         </div>}
 
         {showForm && (
@@ -178,7 +333,7 @@ export default function MeetingWorkspace() {
               </label>
               <label className={styles.field}>
                 <span>Date and time</span>
-                <input name="scheduledAt" type="datetime-local" required />
+                <input name="scheduledAt" type="datetime-local" min={localNow || undefined} required />
               </label>
               <label className={styles.field}>
                 <span>Duration</span>
@@ -209,6 +364,15 @@ export default function MeetingWorkspace() {
                 placeholder="Search people or department"
                 aria-label="Search teammates"
               />
+              {selectedPeople.length > 0 && <div className={styles.selectedPeople} aria-label="Selected invitees">
+                {selectedPeople.map((id) => {
+                  const person = people.find((entry) => entry.id === id);
+                  if (!person) return null;
+                  return <button type="button" key={id} onClick={() => togglePerson(id)} aria-label={`Remove ${person.name}`}>
+                    {person.name}<span aria-hidden="true">×</span>
+                  </button>;
+                })}
+              </div>}
               <div className={styles.peopleList}>
                 {filteredPeople.length ? filteredPeople.map((person) => (
                   <label key={person.id} className={styles.personOption}>
@@ -239,9 +403,9 @@ export default function MeetingWorkspace() {
           <div className={styles.meetingWorkspaceTools}>
             <div className={styles.meetingViewTabs} role="group" aria-label="Filter meetings">
               {([
-                ["upcoming", "Upcoming", meetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status)).length],
-                ["history", "Past", meetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status)).length],
                 ["all", "All", meetings.length],
+                ["upcoming", "Upcoming", meetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status) && !isPastMeeting(meeting, now)).length],
+                ["history", "Past", meetings.filter((meeting) => isPastMeeting(meeting, now)).length],
               ] as const).map(([value, label, count]) => (
                 <button type="button" key={value} className={meetingView === value ? styles.activeMeetingTab : ""} onClick={() => setMeetingView(value)} aria-pressed={meetingView === value}>{label}<span>{count}</span></button>
               ))}
@@ -249,15 +413,36 @@ export default function MeetingWorkspace() {
             <label className={styles.searchWrap}>
               <span aria-hidden="true">⌕</span>
               <input className={styles.meetingSearch} value={meetingSearch} onChange={(event) => setMeetingSearch(event.target.value)} placeholder="Search meetings" aria-label="Search meetings" />
+              {meetingSearch && <button type="button" className={styles.clearSearch} onClick={() => setMeetingSearch("")} aria-label="Clear meeting search">×</button>}
             </label>
           </div>
 
           <section className={styles.section} aria-live="polite">
             <div className={styles.sectionHeading}>
-              <div><h2>{meetingView === "upcoming" ? "Upcoming & live" : meetingView === "history" ? "Past meetings" : "All meetings"}</h2><p>{meetingView === "upcoming" ? "Your next calls and meetings happening now." : meetingView === "history" ? "Review completed and cancelled meetings." : "Every meeting in one place, newest scheduled first."}</p></div>
+              <div><h2>{meetingView === "upcoming" ? "Upcoming & live" : meetingView === "history" ? "Past meetings" : "All meetings"}</h2><p>{meetingView === "upcoming" ? "Your next calls and meetings happening now." : meetingView === "history" ? "Review completed and cancelled meetings." : "Meetings are sorted by date, newest first."}</p></div>
               <span className={styles.count}>{visibleMeetings.length}</span>
             </div>
-            {visibleMeetings.length ? <div className={styles.meetingGrid}>
+            {meetingView !== "upcoming" ? (
+              <div className={styles.historyTableWrap}>
+                <p className={styles.tableHint}>Scroll horizontally to see all meeting details.</p>
+                <table className={styles.historyTable}>
+                  <thead><tr>
+                    <th scope="col">Meeting</th><th scope="col">MOM / Minutes</th><th scope="col">Date &amp; time</th><th scope="col">Host</th>
+                    <th scope="col">Invited</th><th scope="col">Attended</th><th scope="col">Duration</th>
+                    <th scope="col">Status</th><th scope="col"><span className={styles.visuallyHidden}>Meeting details</span></th>
+                  </tr></thead>
+                  <tbody>{visibleMeetings.length ? visibleMeetings.map((meeting) => (
+                    <MeetingHistoryRow
+                      key={meeting.id}
+                      meeting={meeting}
+                      now={now}
+                      isHost={Number(meeting.hostId) === Number(user?.id)}
+                      onOpenMeeting={() => router.push(`/dashboard/meetings/${meeting.id}`)}
+                    />
+                  )) : <tr><td className={styles.tableEmpty} colSpan={9}>{meetingSearch ? "No meetings match this search." : meetingView === "history" ? "No past meetings yet." : "No meetings yet."}</td></tr>}</tbody>
+                </table>
+              </div>
+            ) : meetingView === "upcoming" && visibleMeetings.length ? <div className={styles.meetingGrid}>
               {visibleMeetings.map((meeting) => (
                 <article key={meeting.id} className={styles.meetingCard}>
                   <div className={styles.cardTop}>

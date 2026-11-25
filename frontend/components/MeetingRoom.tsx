@@ -194,13 +194,13 @@ function MeetingCallTools({ meeting, onMeetingUpdated, onRecordingReady }: { mee
         if (room.state === "connected") void publish({ type: "mom-recording", enabled: false });
         if (audio.size > 0) {
           onRecordingReady(audio);
-          toast.success("Recording ready. The AI MOM will be available when the meeting ends.");
+          toast.success("Recording ready. AI MOM will generate automatically when the meeting ends.");
         }
       };
       recorder.start(1000);
       setRecordingEnabled(true);
       void publish({ type: "mom-recording", enabled: true });
-      toast.success("AI MOM recording is on. Meeting audio is being captured.");
+      toast.success("Audio recording started. AI will process it when you end the meeting.");
     } catch (recordingError) {
       toast.error(messageFrom(recordingError, "Meeting recording start nahi ho paayi."));
     }
@@ -447,6 +447,7 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
   const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null);
   const [generatingMom, setGeneratingMom] = useState(false);
   const leaving = useRef(false);
+  const autoMomAttempted = useRef<number | null>(null);
 
   const loadMeeting = useCallback(async () => {
     try {
@@ -545,7 +546,7 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
     }
   }
 
-  async function generateMOM() {
+  const generateMOM = useCallback(async () => {
     if (!meeting) return;
     setGeneratingMom(true);
     setError("");
@@ -572,7 +573,18 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
     } finally {
       setGeneratingMom(false);
     }
-  }
+  }, [meeting, momAudio, momTranscript, recordedAudio, meetingId]);
+
+  useEffect(() => {
+    if (meeting?.status !== "ENDED" || !recordedAudio || meeting.minutes || generatingMom) return;
+    if (autoMomAttempted.current === meeting.id) return;
+    autoMomAttempted.current = meeting.id;
+    if (recordedAudio.size > 25 * 1024 * 1024) {
+      setError("Recording is larger than 25 MB. Upload a shorter clip or paste the transcript to create the MOM.");
+      return;
+    }
+    void generateMOM();
+  }, [meeting, recordedAudio, generatingMom, generateMOM]);
 
   async function copyMOM() {
     if (!meeting?.minutes) return;
@@ -609,10 +621,12 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
       <section className={styles.roomPage}>
         <div className={styles.roomHeader}>
           <div>
+            <p className={styles.roomEyebrow}>TEAM MEETING</p>
             <h1>{loading ? "Loading meeting…" : meeting?.title || "Meeting details"}</h1>
             {meeting && <p>{scheduledLabel} · {meeting.durationMinutes} minutes · Hosted by {meeting.host?.name}</p>}
           </div>
           <div className={styles.roomActions}>
+            <button type="button" className={styles.secondaryButton} onClick={() => router.push("/dashboard/meetings")}>Back to meetings</button>
             {isHost && meeting?.status === "SCHEDULED" && !joinInfo && (
               <button className={styles.secondaryButton} onClick={() => void cancelMeeting()} disabled={busy}>Cancel meeting</button>
             )}
@@ -670,7 +684,7 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
                   {meeting.status === "ENDED" && (
                     <section className={styles.meetingMinutesSection}>
                       <div className={styles.minutesHeading}>
-                        <div><span className={styles.minutesEyebrow}>AI ASSISTANT</span><h3>Minutes of Meeting</h3><p>Live call mein <strong>Enable AI MOM</strong> dabakar audio capture karein, ya recording upload/transcript paste karein. AI summary, decisions aur action items banayega.</p></div>
+                        <div><span className={styles.minutesEyebrow}>AI ASSISTANT</span><h3>Minutes of Meeting</h3><p>Call ke dauran <strong>Enable AI MOM</strong> chalu karein; recording meeting end par automatically process hogi. Recording nahi hai toh audio upload ya transcript paste karke MOM banayein.</p></div>
                         {meeting.minutes && <button type="button" className={styles.secondaryButton} onClick={() => void copyMOM()}>Copy MOM</button>}
                       </div>
                       {meeting.minutes && (
@@ -712,32 +726,45 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
                   <button className={styles.secondaryButton} onClick={() => router.push("/dashboard/meetings")}>Back to meetings</button>
                 </>
               ) : (
-                <>
-                  <h2>{isLive ? "Your team is in the meeting" : "Your meeting is ready"}</h2>
-                  <p>
-                    {isLive
-                      ? "Camera and microphone permission will be requested when you join this in-app call."
-                      : isHost
-                        ? "Starting the in-app call will allow invited teammates to join."
-                        : "The host needs to start the meeting before participants can join."}
-                  </p>
-                  {meeting.agenda && <p><strong>Agenda:</strong> {meeting.agenda}</p>}
-                  {error && <p className={styles.roomError}>{error}</p>}
-                  {(isHost || isLive) && (
-                    <button className={styles.primaryButton} onClick={() => void join()} disabled={busy}>
-                      {busy ? "Connecting…" : isHost && !isLive ? "Start and join meeting" : "Join meeting"}
-                    </button>
-                  )}
-                  <div className={styles.attendanceList}>
-                    <strong>Invited participants ({meeting.participants.length})</strong>
-                    {meeting.participants.map((participant) => (
-                      <div key={participant.id} className={styles.attendanceRow}>
-                        <span>{participant.user?.name || "Participant"}{participant.participantRole === "HOST" ? " · Host" : ""}</span>
-                        <small>{participant.user?.department || "Team"}</small>
-                      </div>
-                    ))}
-                  </div>
-                </>
+                <div className={styles.joinLobby}>
+                  <section className={styles.joinCard}>
+                    <span className={`${styles.lobbyStatus} ${isLive ? styles.lobbyLive : ""}`}>
+                      <span aria-hidden="true">{isLive ? "●" : "◷"}</span> {isLive ? "LIVE NOW" : "SCHEDULED MEETING"}
+                    </span>
+                    <h2>{isLive ? "Your team is in the meeting" : isHost ? "Ready to start?" : "You’re invited"}</h2>
+                    <p className={styles.lobbyDescription}>
+                      {isLive
+                        ? "Join the call when you’re ready. Your camera and microphone will connect after you join."
+                        : isHost
+                          ? "Start the room when you’re ready. Your invited teammates can join as soon as it’s live."
+                          : "The meeting host will start the room. You can join as soon as it goes live."}
+                    </p>
+                    {meeting.agenda && <div className={styles.lobbyAgenda}><strong>Agenda</strong><p>{meeting.agenda}</p></div>}
+                    <div className={styles.lobbyFacts}>
+                      <div><small>When</small><strong>{scheduledLabel}</strong></div>
+                      <div><small>Length</small><strong>{meeting.durationMinutes} minutes</strong></div>
+                      <div><small>Host</small><strong>{meeting.host?.name || "Team member"}</strong></div>
+                    </div>
+                    {error && <p className={styles.roomError} role="alert">{error}</p>}
+                    {(isHost || isLive) ? (
+                      <button className={`${styles.primaryButton} ${styles.joinCta}`} onClick={() => void join()} disabled={busy}>
+                        {busy ? "Connecting…" : isHost && !isLive ? "Start and join meeting" : "Join meeting"}
+                      </button>
+                    ) : <div className={styles.waitingHost}><span aria-hidden="true">◷</span><span><strong>Waiting for the host</strong><small>This page will be ready when the host starts the room.</small></span></div>}
+                    <small className={styles.privacyHint}>Your browser will ask for camera and microphone access. You can change them during the call.</small>
+                  </section>
+                  <aside className={styles.lobbySidebar}>
+                    <div className={styles.lobbyParticipantsHeading}><strong>Invited participants</strong><span>{meeting.participants.length}</span></div>
+                    <div className={styles.lobbyParticipantList}>
+                      {meeting.participants.map((participant) => (
+                        <div key={participant.id} className={styles.lobbyParticipant}>
+                          <span className={styles.lobbyAvatar}>{(participant.user?.name || "?").slice(0, 1).toUpperCase()}</span>
+                          <span><strong>{participant.user?.name || "Participant"}</strong><small>{participant.participantRole === "HOST" ? "Host" : participant.user?.department || "Teammate"}</small></span>
+                        </div>
+                      ))}
+                    </div>
+                  </aside>
+                </div>
               )}
             </div>
           )}
