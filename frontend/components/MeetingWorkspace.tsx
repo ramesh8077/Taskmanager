@@ -54,7 +54,7 @@ export default function MeetingWorkspace() {
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [query, setQuery] = useState("");
-  const [meetingView, setMeetingView] = useState<"all" | "upcoming" | "history">("all");
+  const [meetingView, setMeetingView] = useState<"all" | "upcoming" | "history">("upcoming");
   const [meetingSearch, setMeetingSearch] = useState("");
 
   useEffect(() => {
@@ -97,6 +97,12 @@ export default function MeetingWorkspace() {
   );
   const upcoming = searchedMeetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status));
   const history = searchedMeetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status));
+  const liveCount = meetings.filter((meeting) => meeting.status === "LIVE").length;
+  const visibleMeetings = meetingView === "all"
+    ? searchedMeetings
+    : meetingView === "upcoming"
+      ? upcoming
+      : history;
 
   async function createMeeting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -143,15 +149,22 @@ export default function MeetingWorkspace() {
           <div>
             <p className={styles.eyebrow}>TEAM WORKSPACE</p>
             <h1>Meetings</h1>
-            <p>Schedule a meeting, invite your team, and join from this workspace.</p>
+            <p>Manage your upcoming calls, invite teammates, and revisit past meetings.</p>
           </div>
-          <button className={styles.primaryButton} onClick={() => setShowForm((value) => !value)}>
+          <button type="button" className={styles.primaryButton} onClick={() => setShowForm((value) => !value)} aria-expanded={showForm} aria-controls="schedule-meeting-form">
             {showForm ? "Close form" : "+ Schedule meeting"}
           </button>
         </div>
 
+        {!loading && <div className={styles.summaryGrid} aria-label="Meeting summary">
+          <article className={styles.summaryCard}><span>All meetings</span><strong>{meetings.length}</strong></article>
+          <article className={styles.summaryCard}><span>Upcoming</span><strong>{meetings.filter((meeting) => meeting.status === "SCHEDULED").length}</strong></article>
+          <article className={styles.summaryCard}><span>Live now</span><strong className={liveCount ? styles.liveNumber : ""}>{liveCount}</strong></article>
+          <article className={styles.summaryCard}><span>Past meetings</span><strong>{meetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status)).length}</strong></article>
+        </div>}
+
         {showForm && (
-          <form className={styles.form} onSubmit={createMeeting}>
+          <form id="schedule-meeting-form" className={styles.form} onSubmit={createMeeting}>
             <div className={styles.formHeader}>
               <div>
                 <h2>Schedule a meeting</h2>
@@ -222,72 +235,58 @@ export default function MeetingWorkspace() {
           </form>
         )}
 
-        {loading ? (
-          <div className={styles.emptyState}>Loading meetings…</div>
-        ) : (
-          <>
-            <div className={styles.meetingWorkspaceTools}>
-              <div className={styles.meetingViewTabs} aria-label="Meeting views">
-                {([ ["all", `All (${meetings.length})`], ["upcoming", `Upcoming (${meetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status)).length})`], ["history", `History (${meetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status)).length})`] ] as const).map(([value, label]) => (
-                  <button type="button" key={value} className={meetingView === value ? styles.activeMeetingTab : ""} onClick={() => setMeetingView(value)} aria-pressed={meetingView === value}>{label}</button>
-                ))}
-              </div>
-              <input className={styles.meetingSearch} value={meetingSearch} onChange={(event) => setMeetingSearch(event.target.value)} placeholder="Search meetings" aria-label="Search meetings" />
+        {loading ? <div className={styles.emptyState}>Loading your meetings…</div> : <>
+          <div className={styles.meetingWorkspaceTools}>
+            <div className={styles.meetingViewTabs} role="group" aria-label="Filter meetings">
+              {([
+                ["upcoming", "Upcoming", meetings.filter((meeting) => ["SCHEDULED", "LIVE"].includes(meeting.status)).length],
+                ["history", "Past", meetings.filter((meeting) => ["ENDED", "CANCELLED"].includes(meeting.status)).length],
+                ["all", "All", meetings.length],
+              ] as const).map(([value, label, count]) => (
+                <button type="button" key={value} className={meetingView === value ? styles.activeMeetingTab : ""} onClick={() => setMeetingView(value)} aria-pressed={meetingView === value}>{label}<span>{count}</span></button>
+              ))}
             </div>
-            {meetingView !== "history" && <section className={styles.section}>
-              <div className={styles.sectionHeading}>
-                <div><h2>Upcoming & live</h2><p>Meetings you host or have been invited to.</p></div>
-                <span className={styles.count}>{upcoming.length}</span>
-              </div>
-              {upcoming.length ? (
-                <div className={styles.meetingGrid}>
-                  {upcoming.map((meeting) => (
-                    <article key={meeting.id} className={styles.meetingCard}>
-                      <div className={styles.cardTop}>
-                        <span className={`${styles.status} ${meeting.status === "LIVE" ? styles.live : ""}`}>
-                          {meeting.status === "LIVE" ? "● LIVE NOW" : "SCHEDULED"}
-                        </span>
-                        <span className={styles.duration}>{meeting.durationMinutes} min</span>
-                      </div>
-                      <h3>{meeting.title}</h3>
-                      <p className={styles.meetingTime}>{formatDate(meeting.scheduledAt)}</p>
-                      {meeting.agenda && <p className={styles.agenda}>{meeting.agenda}</p>}
-                      <div className={styles.cardFooter}>
-                        <span className={styles.hostLabel}>Host: {meeting.host?.name || "Team member"}</span>
-                        <button className={styles.joinButton} onClick={() => router.push(`/dashboard/meetings/${meeting.id}`)}>
-                          {meeting.status === "LIVE" ? "Join meeting" : "Open details"}
-                        </button>
-                      </div>
-                    </article>
-                  ))}
-                </div>
-              ) : (
-                <div className={styles.emptyState}>No upcoming meetings. Schedule one to get started.</div>
-              )}
-            </section>}
+            <label className={styles.searchWrap}>
+              <span aria-hidden="true">⌕</span>
+              <input className={styles.meetingSearch} value={meetingSearch} onChange={(event) => setMeetingSearch(event.target.value)} placeholder="Search meetings" aria-label="Search meetings" />
+            </label>
+          </div>
 
-            {meetingView !== "upcoming" && <section className={styles.section}>
-              <div className={styles.sectionHeading}>
-                <div><h2>Meeting history</h2><p>Past meetings and cancelled sessions.</p></div>
-                <span className={styles.count}>{history.length}</span>
-              </div>
-              {history.length ? (
-                <div className={styles.historyList}>
-                  {history.map((meeting) => (
-                    <button key={meeting.id} className={styles.historyRow} onClick={() => router.push(`/dashboard/meetings/${meeting.id}`)}>
-                      <span className={styles.historyIcon}>M</span>
-                      <span className={styles.historyTitle}><strong>{meeting.title}</strong><small>{formatDate(meeting.scheduledAt)} · {meeting.participants.length} participants</small></span>
-                      <span className={`${styles.status} ${meeting.status === "ENDED" ? styles.ended : ""}`}>{meeting.status}</span>
-                      <span aria-hidden="true">›</span>
+          <section className={styles.section} aria-live="polite">
+            <div className={styles.sectionHeading}>
+              <div><h2>{meetingView === "upcoming" ? "Upcoming & live" : meetingView === "history" ? "Past meetings" : "All meetings"}</h2><p>{meetingView === "upcoming" ? "Your next calls and meetings happening now." : meetingView === "history" ? "Review completed and cancelled meetings." : "Every meeting in one place, newest scheduled first."}</p></div>
+              <span className={styles.count}>{visibleMeetings.length}</span>
+            </div>
+            {visibleMeetings.length ? <div className={styles.meetingGrid}>
+              {visibleMeetings.map((meeting) => (
+                <article key={meeting.id} className={styles.meetingCard}>
+                  <div className={styles.cardTop}>
+                    <span className={`${styles.status} ${meeting.status === "LIVE" ? styles.live : meeting.status === "ENDED" ? styles.ended : meeting.status === "CANCELLED" ? styles.cancelled : ""}`}>
+                      {meeting.status === "LIVE" ? "● LIVE NOW" : meeting.status === "SCHEDULED" ? "UPCOMING" : meeting.status}
+                    </span>
+                    <span className={styles.duration}>{meeting.durationMinutes} min</span>
+                  </div>
+                  <h3>{meeting.title}</h3>
+                  <p className={styles.meetingTime}>{formatDate(meeting.scheduledAt)}</p>
+                  {meeting.agenda && <p className={styles.agenda}>{meeting.agenda}</p>}
+                  <div className={styles.cardMeta}><span>Host</span><strong>{meeting.host?.name || "Team member"}</strong><span>People</span><strong>{meeting.participants.length}</strong></div>
+                  <div className={styles.cardFooter}>
+                    <button type="button" className={styles.joinButton} onClick={() => router.push(`/dashboard/meetings/${meeting.id}`)}>
+                      {meeting.status === "LIVE" ? "Join meeting" : meeting.status === "SCHEDULED" ? "Open meeting" : "View details"}
                     </button>
-                  ))}
-                </div>
-              ) : (
-                <div className={styles.emptyState}>Completed meetings will appear here.</div>
-              )}
-            </section>}
-          </>
-        )}
+                  </div>
+                </article>
+              ))}
+            </div> : (
+              <div className={styles.emptyState}>
+                <span className={styles.emptyIcon} aria-hidden="true">{meetingSearch ? "⌕" : "▣"}</span>
+                <strong>{meetingSearch ? "No matching meetings" : meetingView === "upcoming" ? "Nothing scheduled yet" : meetingView === "history" ? "No past meetings yet" : "No meetings yet"}</strong>
+                <span>{meetingSearch ? "Try another title, agenda, or host name." : meetingView === "upcoming" ? "Schedule a meeting and invite your teammates." : "Your meetings will show up here."}</span>
+                {!meetingSearch && meetingView === "upcoming" && <button type="button" className={styles.emptyAction} onClick={() => setShowForm(true)}>Schedule your first meeting</button>}
+              </div>
+            )}
+          </section>
+        </>}
       </section>
     </ProtectedRoute>
   );
