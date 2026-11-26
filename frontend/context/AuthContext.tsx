@@ -102,7 +102,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     let reconnectTimer: number | undefined;
     let reconnectDelay = 1000;
     let lastNotificationId = 0;
+    let lastChatId = 0;
     const seenNotificationIds = new Set<number>();
+
+    const setRealtimeStatus = (connected: boolean) => {
+      (window as Window & { __taskmanagerRealtimeOpen?: boolean }).__taskmanagerRealtimeOpen = connected;
+      window.dispatchEvent(new CustomEvent("taskmanager:realtime-status", { detail: { connected } }));
+    };
 
     const showNotification = (notification: NotificationMessage) => {
       toast.custom((toastItem) => (
@@ -155,24 +161,36 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const socketUrl = new URL(`${apiUrl.pathname.replace(/\/+$/, "")}/realtime/notifications`, apiUrl.origin);
         socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
         socketUrl.searchParams.set("after", String(lastNotificationId));
+        if (lastChatId > 0) socketUrl.searchParams.set("afterChat", String(lastChatId));
         socket = new WebSocket(socketUrl);
-        socket.onopen = () => { reconnectDelay = 1000; };
+        socket.onopen = () => {
+          reconnectDelay = 1000;
+          setRealtimeStatus(true);
+        };
         socket.onmessage = (event) => {
           try {
-            const payload = JSON.parse(String(event.data)) as { type?: string; notification?: NotificationMessage; message?: unknown };
+            const payload = JSON.parse(String(event.data)) as { type?: string; notification?: NotificationMessage; message?: { id?: number } };
             if (payload.type === "notification") handleNotification(payload.notification);
-            if (payload.type === "chat_message" && payload.message) window.dispatchEvent(new CustomEvent("taskmanager:chat-message", { detail: payload.message }));
+            if (payload.type === "chat_message" && payload.message) {
+              const messageId = Number(payload.message.id);
+              if (Number.isSafeInteger(messageId) && messageId > 0) {
+                lastChatId = Math.max(lastChatId, messageId);
+              }
+              window.dispatchEvent(new CustomEvent("taskmanager:chat-message", { detail: payload.message }));
+            }
           } catch {
             // Ignore malformed messages and keep the connection alive.
           }
         };
         socket.onerror = () => socket?.close();
         socket.onclose = () => {
+          setRealtimeStatus(false);
           if (stopped) return;
           reconnectTimer = window.setTimeout(connect, reconnectDelay);
           reconnectDelay = Math.min(reconnectDelay * 2, 30000);
         };
       } catch {
+        setRealtimeStatus(false);
         if (!stopped) {
           reconnectTimer = window.setTimeout(connect, reconnectDelay);
           reconnectDelay = Math.min(reconnectDelay * 2, 30000);
@@ -194,6 +212,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       stopped = true;
+      setRealtimeStatus(false);
       if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
       navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage);
       socket?.close();

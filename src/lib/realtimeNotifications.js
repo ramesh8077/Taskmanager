@@ -1,3 +1,4 @@
+const { EventEmitter } = require("events");
 const jwt = require("jsonwebtoken");
 const { WebSocketServer, WebSocket } = require("ws");
 const { Op } = require("sequelize");
@@ -5,6 +6,12 @@ const db = require("../models");
 const appConfig = require("../config/app.config");
 
 const SOCKET_PATH = "/api/realtime/notifications";
+const realtimeEvents = new EventEmitter();
+realtimeEvents.setMaxListeners(0);
+
+function triggerRealtimePoll() {
+  realtimeEvents.emit("poll");
+}
 
 function getCookie(header = "", name) {
   const cookie = header.split(";").map((item) => item.trim()).find((item) => item.startsWith(`${name}=`));
@@ -71,20 +78,35 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
 
     const requestedCursor = Number(url.searchParams.get("after"));
     const lastId = Number.isSafeInteger(requestedCursor) && requestedCursor >= 0 ? requestedCursor : 0;
+    const rawChatCursor = url.searchParams.get("afterChat");
+    const requestedChatCursor = rawChatCursor !== null ? Number(rawChatCursor) : NaN;
+    const hasChatCursor = Number.isSafeInteger(requestedChatCursor) && requestedChatCursor >= 0;
     wss.handleUpgrade(request, socket, head, (client) => {
-      wss.emit("connection", client, request, { userId, lastId });
+      wss.emit("connection", client, request, {
+        userId,
+        lastId,
+        lastChatId: hasChatCursor ? requestedChatCursor : null,
+      });
     });
   });
 
   wss.on("connection", (client, _request, session) => {
     let lastId = session.lastId;
-    let lastChatId = 0;
+    let lastChatId = session.lastChatId;
     let querying = false;
+    let pendingPoll = false;
 
     const poll = async () => {
-      if (querying || client.readyState !== WebSocket.OPEN) return;
+      if (client.readyState !== WebSocket.OPEN) return;
+      if (querying) {
+        pendingPoll = true;
+        return;
+      }
       querying = true;
       try {
+        if (lastChatId === null) {
+          lastChatId = Number(await db.ChatMessage.max("id")) || 0;
+        }
         const notifications = await db.Notification.findAll({
           where: { userId: session.userId, id: { [Op.gt]: lastId } },
           attributes: ["id", "type", "title", "message", "link", "readAt", "createdAt"],
@@ -111,17 +133,27 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
         console.error("Realtime notification lookup failed:", error.message);
       } finally {
         querying = false;
+        if (pendingPoll && client.readyState === WebSocket.OPEN) {
+          pendingPoll = false;
+          void poll();
+        }
       }
     };
 
+    const onTrigger = () => void poll();
+    realtimeEvents.on("poll", onTrigger);
     const interval = setInterval(() => void poll(), 2000);
     interval.unref?.();
-    client.on("close", () => clearInterval(interval));
-    client.on("error", () => clearInterval(interval));
+    const cleanup = () => {
+      clearInterval(interval);
+      realtimeEvents.off("poll", onTrigger);
+    };
+    client.on("close", cleanup);
+    client.on("error", cleanup);
     void poll();
   });
 
   return wss;
 }
 
-module.exports = { attachRealtimeNotifications, SOCKET_PATH };
+module.exports = { attachRealtimeNotifications, triggerRealtimePoll, SOCKET_PATH };

@@ -22,16 +22,24 @@ async function configureWebPush() {
   return webpush;
 }
 
+const PUSH_NOTIFICATION_TYPES = new Set([
+  "task_assigned",
+  "ticket_assigned",
+  "MEETING_INVITATION",
+  "MEETING_CANCELLED",
+  "team_chat",
+  "chat_mention",
+]);
+
+function shouldSendPushForNotification(type) {
+  return PUSH_NOTIFICATION_TYPES.has(type);
+}
+
 async function sendPushForNotification(notification) {
   let webpush;
   try {
     webpush = await configureWebPush();
-    if (!webpush || ![
-      "task_assigned",
-      "ticket_assigned",
-      "MEETING_INVITATION",
-      "MEETING_CANCELLED",
-    ].includes(notification.type)) return;
+    if (!webpush || !shouldSendPushForNotification(notification?.type)) return;
   } catch (error) {
     console.error("Browser push configuration is invalid:", error.message);
     return;
@@ -69,4 +77,4 @@ async function sendPushForNotification(notification) {
   }
 }
 
-module.exports = { sendPushForNotification, vapidPublicKey };
+module.exports = { sendPushForNotification, shouldSendPushForNotification, vapidPublicKey };

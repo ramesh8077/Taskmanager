@@ -508,9 +508,8 @@
 .status-filter-all { --filter-tone: var(--accent); }
 .status-filter-pending { --filter-tone: var(--status-pending); }
 .status-filter-in_progress { --filter-tone: var(--status-progress); }
-.status-filter-in_review { --filter-tone: var(--status-review); }
 .status-filter-done { --filter-tone: var(--status-done); }
-.status-filter-blocked { --filter-tone: var(--status-danger); }
+.status-filter-overdue { --filter-tone: var(--status-danger); }
 
 .work-items-filter-controls {
   display: flex;
@@ -634,8 +633,7 @@
   gap: 6px 11px;
 }
 
-.work-items-checks label,
-.work-items-overdue {
+.work-items-checks label {
   display: inline-flex;
   align-items: center;
   gap: 5px;
@@ -644,8 +642,7 @@
   text-transform: capitalize;
 }
 
-.work-items-checks input,
-.work-items-overdue input {
+.work-items-checks input {
   accent-color: var(--accent);
 }
 
@@ -677,16 +674,6 @@
 .priority-filter-medium { --filter-tone: var(--status-progress); }
 .priority-filter-high { --filter-tone: var(--priority-high); }
 .priority-filter-urgent { --filter-tone: var(--status-danger); }
-
-.work-items-overdue {
-  min-height: 36px;
-  align-self: end;
-}
-
-.work-items-overdue.is-selected {
-  color: var(--status-danger);
-  font-weight: 650;
-}
 
 .work-items-presets {
   display: flex;

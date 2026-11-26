@@ -35,6 +35,27 @@ test("work item status groups map the separate model enums consistently", () => 
   assert.equal(getStatusGroup("BLOCKED"), "BLOCKED");
 });
 
+test("overdue work item filters match past deadlines and exclude completed items", async () => {
+  const where = await buildWorkItemWhere({
+    view: "tasks",
+    actor: { id: 3, position: "EMPLOYEE", department: "Development" },
+    User: userModel,
+    scope: {
+      assignableIds: [3],
+      creatorIds: [3],
+      taskScope: { assignedTo: 3 },
+      ticketScope: { department: "Development" },
+    },
+    filters: { status: "ALL", overdue: "true" },
+  });
+  const conditions = where[Op.and];
+  const deadlineCondition = conditions.find((condition) => condition.dueDate);
+  const statusCondition = conditions.find((condition) => condition.status);
+
+  assert.ok(deadlineCondition.dueDate[Op.lt] <= new Date().toISOString().slice(0, 10));
+  assert.deepEqual(statusCondition.status[Op.notIn], ["Completed", "DONE", "Resolved", "Closed"]);
+});
+
 test("priority values from both models normalize for the shared badges", () => {
   assert.equal(getPriorityGroup("P0", "ticket"), "URGENT");
   assert.equal(getPriorityGroup("High", "task"), "HIGH");

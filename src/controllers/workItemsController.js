@@ -61,30 +61,47 @@ function orderBy(view, sortBy, sortOrder) {
 }
 
 async function statusCounts(Model, view, actor, User, scope, filters) {
+  const countFilters = { ...filters, status: "ALL", overdue: undefined };
   const where = await buildWorkItemWhere({
     view,
     actor,
     User,
     scope,
-    filters: { ...filters, status: "ALL" },
+    filters: countFilters,
     includeStatus: false,
   });
-  const grouped = await Model.findAll({
-    attributes: [
-      "status",
-      [db.sequelize.fn("COUNT", db.sequelize.col(`${Model.name}.id`)), "count"],
-    ],
-    where,
-    include: assigneeScopeInclude(),
-    group: [db.sequelize.col(`${Model.name}.status`)],
-    raw: true,
+  const overdueWhere = await buildWorkItemWhere({
+    view,
+    actor,
+    User,
+    scope,
+    filters: { ...countFilters, overdue: "true" },
+    includeStatus: false,
   });
-  const counts = Object.fromEntries([...statusKeys, "ALL"].map((key) => [key, 0]));
+  const [grouped, overdue] = await Promise.all([
+    Model.findAll({
+      attributes: [
+        "status",
+        [db.sequelize.fn("COUNT", db.sequelize.col(`${Model.name}.id`)), "count"],
+      ],
+      where,
+      include: assigneeScopeInclude(),
+      group: [db.sequelize.col(`${Model.name}.status`)],
+      raw: true,
+    }),
+    Model.count({
+      where: overdueWhere,
+      include: assigneeScopeInclude(),
+      distinct: true,
+    }),
+  ]);
+  const counts = Object.fromEntries([...statusKeys, "ALL", "OVERDUE"].map((key) => [key, 0]));
   for (const row of grouped) {
     const bucket = getStatusGroup(row.status);
     if (bucket) counts[bucket] += Number(row.count);
   }
   counts.ALL = statusKeys.reduce((total, key) => total + counts[key], 0);
+  counts.OVERDUE = overdue;
   return counts;
 }
 
@@ -171,6 +188,7 @@ async function listWorkItems(req, res) {
           inReview: counts.IN_REVIEW,
           done: counts.DONE,
           blocked: counts.BLOCKED,
+          overdue: counts.OVERDUE,
           all: counts.ALL,
         },
         viewCounts: { tasks: taskCount, tickets: ticketCount },

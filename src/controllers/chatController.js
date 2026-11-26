@@ -1,5 +1,6 @@
 const { Op } = require("sequelize");
 const db = require("../models");
+const { triggerRealtimePoll } = require("../lib/realtimeNotifications");
 
 async function listMentionableMembers(req, res) {
   try {
@@ -17,10 +18,25 @@ async function listMentionableMembers(req, res) {
 
 async function listMessages(req, res) {
   try {
+    const after = Number(req.query.after);
+    if (Number.isSafeInteger(after) && after > 0) {
+      const rows = await db.ChatMessage.findAll({
+        where: { id: { [Op.gt]: after } },
+        include: [{ model: db.User, as: "author", attributes: ["id", "name"] }],
+        order: [["id", "ASC"]],
+        limit: 100,
+      });
+      return res.json({ success: true, data: { messages: rows } });
+    }
     const before = Number(req.query.before);
-    const where = before > 0 ? { id: { [Op.lt]: before } } : {};
-    const rows = await db.ChatMessage.findAll({ where, include: [{ model: db.User, as: "author", attributes: ["id", "name"] }], order: [["id", "DESC"]], limit: 100 });
-    return res.json({ success: true, data: { messages: rows } });
+    const where = Number.isSafeInteger(before) && before > 0 ? { id: { [Op.lt]: before } } : {};
+    const rows = await db.ChatMessage.findAll({
+      where,
+      include: [{ model: db.User, as: "author", attributes: ["id", "name"] }],
+      order: [["id", "DESC"]],
+      limit: 100,
+    });
+    return res.json({ success: true, data: { messages: rows.reverse() } });
   } catch (error) {
     console.error("List chat messages failed:", error.message);
     return res.status(500).json({ success: false, message: "Unable to load team chat." });
@@ -43,11 +59,12 @@ async function createMessage(req, res) {
       const mentionedIds = new Set(mentioned.map((user) => user.id));
       await db.Notification.bulkCreate(recipientIds.map((userId) => ({
         userId, type: mentionedIds.has(userId) ? "chat_mention" : "team_chat",
-        title: mentionedIds.has(userId) ? `${req.user.name} mentioned you in team chat` : "New team chat message",
+        title: mentionedIds.has(userId) ? `${req.user.name} mentioned you in team chat` : `New message from ${req.user.name}`,
         message: message.slice(0, 200), link: "/dashboard/chat",
         dedupeKey: `chat:${created.id}:${userId}`,
       })), { ignoreDuplicates: true });
     }
+    triggerRealtimePoll();
     return res.status(201).json({ success: true, data: { message: result } });
   } catch (error) {
     console.error("Create chat message failed:", error.message);

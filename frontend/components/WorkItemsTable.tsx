@@ -6,7 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import WorkItemDetails from "@/components/WorkItemDetails";
 
 type View = "tasks" | "tickets";
-type Status = "PENDING" | "IN_PROGRESS" | "IN_REVIEW" | "DONE" | "BLOCKED" | "ALL";
+type Status = "PENDING" | "IN_PROGRESS" | "DONE" | "OVERDUE" | "ALL";
 type SortBy = "referenceId" | "title" | "status" | "priority" | "deadline" | "assignedTo" | "createdBy" | "department" | "createdAt";
 type Position = "MANAGER" | "SUB_MANAGER" | "TEAM_LEAD" | "EMPLOYEE" | "INTERN";
 type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
@@ -23,7 +23,6 @@ interface Filters {
   deadlineTo: string;
   createdFrom: string;
   createdTo: string;
-  overdue: boolean;
   search: string;
   page: number;
   pageSize: number;
@@ -68,6 +67,7 @@ interface Result {
     inReview: number;
     done: number;
     blocked: number;
+    overdue: number;
     all: number;
   };
   viewCounts: { tasks: number; tickets: number };
@@ -87,7 +87,7 @@ interface ApiResponse {
 
 const initialFilters: Filters = {
   view: "tasks",
-  status: "ALL",
+  status: "IN_PROGRESS",
   assigneePosition: [],
   department: [],
   priority: [],
@@ -95,7 +95,6 @@ const initialFilters: Filters = {
   deadlineTo: "",
   createdFrom: "",
   createdTo: "",
-  overdue: false,
   search: "",
   page: 1,
   pageSize: 20,
@@ -104,12 +103,11 @@ const initialFilters: Filters = {
 };
 
 const statusTabs: Array<{ value: Status; label: string; countKey: keyof Result["counts"] }> = [
-  { value: "ALL", label: "All", countKey: "all" },
-  { value: "IN_PROGRESS", label: "In Progress", countKey: "inProgress" },
+  { value: "IN_PROGRESS", label: "Processing", countKey: "inProgress" },
   { value: "PENDING", label: "Pending", countKey: "pending" },
   { value: "DONE", label: "Done", countKey: "done" },
-  { value: "IN_REVIEW", label: "In Review", countKey: "inReview" },
-  { value: "BLOCKED", label: "Blocked", countKey: "blocked" },
+  { value: "OVERDUE", label: "Overdue", countKey: "overdue" },
+  { value: "ALL", label: "All", countKey: "all" },
 ];
 
 const priorityOptions: Array<{ value: Priority; label: string }> = [
@@ -144,7 +142,9 @@ function readFilters(): Filters {
   return {
     ...initialFilters,
     view: params.get("view") === "tickets" ? "tickets" : "tasks",
-    status: statusValues.includes(params.get("status") as Status)
+    status: params.get("overdue") === "true"
+      ? "OVERDUE"
+      : statusValues.includes(params.get("status") as Status)
       ? params.get("status") as Status
       : initialFilters.status,
     assignedTo: Number(params.get("assignedTo")) > 0 ? Number(params.get("assignedTo")) : undefined,
@@ -156,7 +156,6 @@ function readFilters(): Filters {
     deadlineTo: params.get("deadlineTo") || "",
     createdFrom: params.get("createdFrom") || "",
     createdTo: params.get("createdTo") || "",
-    overdue: params.get("overdue") === "true",
     search: params.get("search") || "",
     page: Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1,
     pageSize: [10, 20, 50, 100].includes(rawPageSize) ? rawPageSize : 20,
@@ -181,7 +180,6 @@ function writeFilters(filters: Filters, replace = false) {
     deadlineTo: filters.deadlineTo || undefined,
     createdFrom: filters.createdFrom || undefined,
     createdTo: filters.createdTo || undefined,
-    overdue: filters.overdue ? "true" : undefined,
     search: filters.search || undefined,
     page: String(filters.page),
     pageSize: String(filters.pageSize),
@@ -272,7 +270,6 @@ export default function WorkItemsTable({
     filters.priority.length > 0,
     Boolean(filters.deadlineFrom || filters.deadlineTo),
     Boolean(filters.createdFrom || filters.createdTo),
-    filters.overdue,
   ].filter(Boolean).length;
 
   useEffect(() => {
@@ -288,7 +285,7 @@ export default function WorkItemsTable({
       const restored = readFilters();
       if (fixedView) {
         restored.view = fixedView;
-        restored.status = "ALL";
+        if (restored.status !== "OVERDUE") restored.status = "ALL";
       }
       if (initialAssignedTo) restored.assignedTo = initialAssignedTo;
       filtersRef.current = restored;
@@ -311,7 +308,7 @@ export default function WorkItemsTable({
       try {
         const params: Record<string, string | number> = {
           view: filters.view,
-          status: filters.status,
+          status: filters.status === "OVERDUE" ? "ALL" : filters.status,
           page: filters.page,
           pageSize: filters.pageSize,
           sortBy: filters.sortBy,
@@ -326,7 +323,7 @@ export default function WorkItemsTable({
         if (filters.deadlineTo) params.deadlineTo = filters.deadlineTo;
         if (filters.createdFrom) params.createdFrom = filters.createdFrom;
         if (filters.createdTo) params.createdTo = filters.createdTo;
-        if (filters.overdue) params.overdue = "true";
+        if (filters.status === "OVERDUE") params.overdue = "true";
         if (filters.search) params.search = filters.search;
         const response = await API.get<ApiResponse>("/work-items", {
           params,
@@ -365,7 +362,7 @@ export default function WorkItemsTable({
     setAssigneeSearch("");
     setCreatorSearch("");
     updateFilters({
-      status: "ALL",
+      status: "IN_PROGRESS",
       assignedTo: initialAssignedTo,
       assigneePosition: [],
       createdBy: undefined,
@@ -375,7 +372,6 @@ export default function WorkItemsTable({
       deadlineTo: "",
       createdFrom: "",
       createdTo: "",
-      overdue: false,
       search: "",
       page: 1,
       pageSize: 20,
@@ -393,7 +389,6 @@ export default function WorkItemsTable({
     const reset: Partial<Filters> = {
       assignedTo: undefined,
       createdBy: undefined,
-      overdue: false,
       search: "",
     };
     if (key === "deadlineFrom") {
@@ -439,7 +434,6 @@ export default function WorkItemsTable({
     if (filters.createdFrom || filters.createdTo) {
       items.push({ key: "createdFrom", label: `Created: ${filters.createdFrom || "Any"} – ${filters.createdTo || "Any"}` });
     }
-    if (filters.overdue) items.push({ key: "overdue", label: "Overdue only" });
     if (filters.search) items.push({ key: "search", label: `Search: ${filters.search}` });
     return items;
   }, [filters, initialAssignedTo, result]);
@@ -656,14 +650,6 @@ export default function WorkItemsTable({
           <label className="work-items-field">
             Created to
             <input type="date" value={filters.createdTo} onChange={(event) => updateFilters({ createdTo: event.target.value })} />
-          </label>
-          <label className="work-items-overdue">
-            <input
-              type="checkbox"
-              checked={filters.overdue}
-              onChange={(event) => updateFilters({ overdue: event.target.checked })}
-            />
-            Overdue only
           </label>
           </div>
         </div>
