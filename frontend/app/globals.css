@@ -1580,11 +1580,47 @@ html.dark select option {
   color: var(--text-primary);
 }
 
+.dashboard-shell.is-chat-view {
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
 .dashboard-shell-content {
   display: flex;
   min-width: 0;
   flex: 1;
   flex-direction: column;
+}
+
+.dashboard-shell.is-chat-view .dashboard-shell-content {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard-shell.is-chat-view .dashboard-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 12px 96px 14px 16px;
+}
+
+.dashboard-shell.is-chat-view .ai-fab-status-pill {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .dashboard-shell.is-chat-view .dashboard-main {
+    padding: 8px 8px 10px;
+  }
+
+  .dashboard-shell.is-chat-view .ai-fab-dock {
+    bottom: 78px;
+    right: 12px;
+  }
 }
 
 .dashboard-sidebar {

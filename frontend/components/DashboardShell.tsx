@@ -5,16 +5,18 @@ import Sidebar from "@/components/Sidebar";
 import NotificationCenter from "@/components/NotificationCenter";
 import AiAssistantWidget from "@/components/AiAssistantWidget";
 import { useTheme } from "@/context/ThemeContext";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 export default function DashboardShell({ children }: { children: ReactNode }) {
   const { isDark, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
+  const isChatView = pathname === "/dashboard/chat";
 
   return (
-    <div className="dashboard-shell">
+    <div className={`dashboard-shell${isChatView ? " is-chat-view" : ""}`}>
       <Sidebar
         collapsed={collapsed}
         mobileOpen={mobileOpen}
@@ -41,7 +43,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
             {collapsed ? "»" : "«"}
           </button>
           <span className="dashboard-topbar-title">Task Manager</span>
-          <button type="button" className="dashboard-theme-button" onClick={() => router.push("/dashboard/chat")}>Team chat</button>
+          <button type="button" className="dashboard-theme-button" onClick={() => router.push("/dashboard/chat")}>Team Chat</button>
           <NotificationCenter />
           <button
             type="button"

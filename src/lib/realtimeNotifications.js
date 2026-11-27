@@ -4,6 +4,7 @@ const { WebSocketServer, WebSocket } = require("ws");
 const { Op } = require("sequelize");
 const db = require("../models");
 const appConfig = require("../config/app.config");
+const { buildReceiptSummary, formatChatMessage, getChatMessageInclude } = require("./chatHelpers");
 
 const SOCKET_PATH = "/api/realtime/notifications";
 const realtimeEvents = new EventEmitter();
@@ -93,6 +94,7 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
   wss.on("connection", (client, _request, session) => {
     let lastId = session.lastId;
     let lastChatId = session.lastChatId;
+    let lastReceiptSyncAt = new Date();
     let querying = false;
     let pendingPoll = false;
 
@@ -122,12 +124,66 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
         }
         const messages = await db.ChatMessage.findAll({
           where: { id: { [Op.gt]: lastChatId } },
-          include: [{ model: db.User, as: "author", attributes: ["id", "name"] }],
-          order: [["id", "ASC"]], limit: 50,
+          include: getChatMessageInclude(),
+          order: [["createdAt", "ASC"], ["id", "ASC"]],
+          limit: 50,
         });
+        let activeUserCount = 0;
+        if (messages.length > 0) {
+          activeUserCount = await db.User.count({ where: { status: "ACTIVE", isActive: true } });
+        }
         for (const message of messages) {
           lastChatId = Math.max(lastChatId, Number(message.id));
-          if (client.readyState === WebSocket.OPEN) client.send(JSON.stringify({ type: "chat_message", message: message.get({ plain: true }) }));
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({
+              type: "chat_message",
+              message: formatChatMessage(message, activeUserCount),
+            }));
+          }
+        }
+        if (db.ChatMessageReceipt) {
+          const updatedReceipts = await db.ChatMessageReceipt.findAll({
+            where: { updatedAt: { [Op.gt]: lastReceiptSyncAt } },
+            include: [{
+              model: db.ChatMessage,
+              as: "chatMessage",
+              where: { userId: session.userId },
+              attributes: ["id", "userId"],
+              required: true,
+            }],
+            attributes: ["messageId", "updatedAt"],
+            order: [["updatedAt", "ASC"]],
+            limit: 100,
+          });
+          if (updatedReceipts.length > 0) {
+            const changedMessageIds = Array.from(new Set(updatedReceipts.map((r) => Number(r.messageId))));
+            const maxUpdated = updatedReceipts.reduce(
+              (latest, r) => (new Date(r.updatedAt) > latest ? new Date(r.updatedAt) : latest),
+              lastReceiptSyncAt
+            );
+            lastReceiptSyncAt = maxUpdated;
+            const [totalActive, receiptsForMsgs] = await Promise.all([
+              activeUserCount || db.User.count({ where: { status: "ACTIVE", isActive: true } }),
+              db.ChatMessageReceipt.findAll({
+                where: { messageId: { [Op.in]: changedMessageIds } },
+                attributes: ["messageId", "userId", "deliveredAt", "seenAt"],
+                raw: true,
+              }),
+            ]);
+            const byMsg = new Map();
+            for (const row of receiptsForMsgs) {
+              const mid = Number(row.messageId);
+              if (!byMsg.has(mid)) byMsg.set(mid, []);
+              byMsg.get(mid).push(row);
+            }
+            const updates = changedMessageIds.map((messageId) => ({
+              messageId,
+              receiptSummary: buildReceiptSummary(session.userId, byMsg.get(messageId) || [], totalActive),
+            }));
+            if (client.readyState === WebSocket.OPEN && updates.length > 0) {
+              client.send(JSON.stringify({ type: "chat_receipts", updates }));
+            }
+          }
         }
       } catch (error) {
         console.error("Realtime notification lookup failed:", error.message);

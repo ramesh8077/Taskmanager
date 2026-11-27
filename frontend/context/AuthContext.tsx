@@ -170,14 +170,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         };
         socket.onmessage = (event) => {
           try {
-            const payload = JSON.parse(String(event.data)) as { type?: string; notification?: NotificationMessage; message?: { id?: number } };
+            const payload = JSON.parse(String(event.data)) as {
+              type?: string;
+              notification?: NotificationMessage;
+              message?: { id?: number; userId?: number };
+              updates?: Array<{ messageId: number; receiptSummary: unknown }>;
+            };
             if (payload.type === "notification") handleNotification(payload.notification);
             if (payload.type === "chat_message" && payload.message) {
               const messageId = Number(payload.message.id);
               if (Number.isSafeInteger(messageId) && messageId > 0) {
                 lastChatId = Math.max(lastChatId, messageId);
+                if (Number(payload.message.userId) !== Number(user.id)) {
+                  void API.post("/chat/receipts", { deliveredIds: [messageId] }).catch(() => {});
+                }
               }
               window.dispatchEvent(new CustomEvent("taskmanager:chat-message", { detail: payload.message }));
+            }
+            if (payload.type === "chat_receipts" && Array.isArray(payload.updates)) {
+              window.dispatchEvent(new CustomEvent("taskmanager:chat-receipts", { detail: payload.updates }));
             }
           } catch {
             // Ignore malformed messages and keep the connection alive.

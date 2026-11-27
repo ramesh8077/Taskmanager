@@ -99,6 +99,8 @@ function ensureDB() {
           "202611170003-ticket-attachment-blobs.js",
           "202611240001-team-chat.js",
           "202611270001-user-deadline-permission.js",
+          "202611270002-team-chat-enhancements.js",
+          "202611270003-chat-attachment-chunks.js",
         ];
         if (
           requiredMigrations.some(
