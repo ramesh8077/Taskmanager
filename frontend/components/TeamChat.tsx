@@ -16,6 +16,8 @@ import API from "@/lib/axios";
 import { useAuth } from "@/context/AuthContext";
 import styles from "./TeamChat.module.css";
 import {
+  DELETE_EVERYONE_WINDOW_MS,
+  EDIT_MESSAGE_WINDOW_MS,
   describeMessagePreview,
   formatDateDividerLabel,
   formatDuration,
@@ -24,6 +26,7 @@ import {
   formatMessageTime,
   getDateKey,
   isMessageDeleted,
+  isWithinMessageWindow,
   sortAndMergeMessages,
   type ChatAttachmentItem,
   type ChatMember,
@@ -268,6 +271,10 @@ export default function TeamChat() {
   const [infoLoading, setInfoLoading] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ChatMessageItem | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [lightboxImage, setLightboxImage] = useState<ChatAttachmentItem | null>(null);
   const [error, setError] = useState("");
 
@@ -363,6 +370,39 @@ export default function TeamChat() {
     );
   }, []);
 
+  const applyEditedMessages = useCallback(
+    (editedList: Array<{ id: number; message: string; mentions?: number[]; editedAt?: string | null }>) => {
+      if (!editedList.length) return;
+      const byId = new Map(editedList.map((entry) => [Number(entry.id), entry]));
+      setMessages((prev) =>
+        prev.map((msg) => {
+          const updatedSelf = byId.get(msg.id);
+          const updatedReply = msg.replyTo ? byId.get(msg.replyTo.id) : undefined;
+          if (!updatedSelf && !updatedReply) return msg;
+          return {
+            ...msg,
+            ...(updatedSelf
+              ? {
+                  message: updatedSelf.message,
+                  mentions: Array.isArray(updatedSelf.mentions) ? updatedSelf.mentions : msg.mentions,
+                  editedAt: updatedSelf.editedAt || msg.editedAt || new Date().toISOString(),
+                }
+              : {}),
+            ...(updatedReply && msg.replyTo
+              ? {
+                  replyTo: {
+                    ...msg.replyTo,
+                    message: updatedReply.message,
+                  },
+                }
+              : {}),
+          };
+        })
+      );
+    },
+    []
+  );
+
   const refreshOwnStatuses = useCallback(
     async (currentMessages: ChatMessageItem[]) => {
       if (!user?.id || document.visibilityState !== "visible") return;
@@ -370,19 +410,48 @@ export default function TeamChat() {
       if (!checkIds.length) return;
       try {
         const res = await API.get<{
-          data: { statuses: Record<number, ChatReceiptSummary>; deletedIds?: number[] };
+          data: {
+            statuses: Record<number, ChatReceiptSummary>;
+            deletedIds?: number[];
+            editedMessages?: Array<{ id: number; message: string; mentions: number[]; editedAt: string }>;
+          };
         }>(`/chat/messages/status?ids=${checkIds.join(",")}`);
         const statuses = res.data.data.statuses || {};
         const deletedIds = new Set((res.data.data.deletedIds || []).map((id) => Number(id)));
+        const editedMap = new Map(
+          (res.data.data.editedMessages || []).map((entry) => [Number(entry.id), entry])
+        );
         setMessages((prev) =>
           prev.map((msg) => {
             const selfDeleted = deletedIds.has(msg.id);
             const replyDeleted = Boolean(msg.replyTo && deletedIds.has(msg.replyTo.id));
+            const selfEdited = !selfDeleted ? editedMap.get(msg.id) : undefined;
+            const replyEdited = !replyDeleted && msg.replyTo ? editedMap.get(msg.replyTo.id) : undefined;
             const nextSummary = statuses[msg.id] || msg.receiptSummary;
-            if (!selfDeleted && !replyDeleted && nextSummary === msg.receiptSummary) return msg;
+            const editChanged =
+              Boolean(selfEdited) &&
+              (selfEdited!.message !== msg.message || selfEdited!.editedAt !== msg.editedAt);
+            const replyEditChanged = Boolean(replyEdited) && replyEdited!.message !== msg.replyTo?.message;
+
+            if (
+              !selfDeleted &&
+              !replyDeleted &&
+              !editChanged &&
+              !replyEditChanged &&
+              nextSummary === msg.receiptSummary
+            ) {
+              return msg;
+            }
             return {
               ...msg,
               receiptSummary: nextSummary,
+              ...(selfEdited
+                ? {
+                    message: selfEdited.message,
+                    mentions: selfEdited.mentions,
+                    editedAt: selfEdited.editedAt,
+                  }
+                : {}),
               ...(selfDeleted
                 ? {
                     message: "",
@@ -402,7 +471,14 @@ export default function TeamChat() {
                       deletedForEveryoneAt: msg.replyTo.deletedForEveryoneAt || new Date().toISOString(),
                     },
                   }
-                : {}),
+                : replyEdited && msg.replyTo
+                  ? {
+                      replyTo: {
+                        ...msg.replyTo,
+                        message: replyEdited.message,
+                      },
+                    }
+                  : {}),
             };
           })
         );
@@ -518,6 +594,14 @@ export default function TeamChat() {
       applyDeletedForEveryone(ids);
     };
 
+    const receiveEditedMessages = (event: Event) => {
+      const editedList = (
+        event as CustomEvent<Array<{ id: number; message: string; mentions?: number[]; editedAt?: string }>>
+      ).detail;
+      if (!Array.isArray(editedList) || editedList.length === 0) return;
+      applyEditedMessages(editedList);
+    };
+
     const onNotification = (event: Event) => {
       const detail = (event as CustomEvent<{ type?: string }>).detail;
       if (detail?.type === "team_chat" || detail?.type === "chat_mention") {
@@ -533,6 +617,7 @@ export default function TeamChat() {
 
     const onVisible = () => {
       if (document.visibilityState === "visible") {
+        setNowMs(Date.now());
         void syncNewMessages();
         setMessages((curr) => {
           void markVisibleMessagesAsSeen(curr);
@@ -541,28 +626,32 @@ export default function TeamChat() {
       }
     };
 
+    const clockTimer = window.setInterval(() => setNowMs(Date.now()), 30000);
     const realtimeOpen =
       (window as Window & { __taskmanagerRealtimeOpen?: boolean }).__taskmanagerRealtimeOpen === true;
     schedulePolling(realtimeOpen);
     window.addEventListener("taskmanager:chat-message", receiveMessage);
     window.addEventListener("taskmanager:chat-receipts", receiveReceiptUpdates);
     window.addEventListener("taskmanager:chat-deleted", receiveDeletedMessages);
+    window.addEventListener("taskmanager:chat-edited", receiveEditedMessages);
     window.addEventListener("taskmanager:notification", onNotification);
     window.addEventListener("taskmanager:realtime-status", onRealtimeStatus);
     window.addEventListener("focus", onVisible);
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
+      window.clearInterval(clockTimer);
       if (pollTimer !== undefined) window.clearInterval(pollTimer);
       window.removeEventListener("taskmanager:chat-message", receiveMessage);
       window.removeEventListener("taskmanager:chat-receipts", receiveReceiptUpdates);
       window.removeEventListener("taskmanager:chat-deleted", receiveDeletedMessages);
+      window.removeEventListener("taskmanager:chat-edited", receiveEditedMessages);
       window.removeEventListener("taskmanager:notification", onNotification);
       window.removeEventListener("taskmanager:realtime-status", onRealtimeStatus);
       window.removeEventListener("focus", onVisible);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [applyDeletedForEveryone, markVisibleMessagesAsSeen, refreshOwnStatuses, syncNewMessages]);
+  }, [applyDeletedForEveryone, applyEditedMessages, markVisibleMessagesAsSeen, refreshOwnStatuses, syncNewMessages]);
 
   const latestMessageId = messages.length ? messages[messages.length - 1].id : 0;
 
@@ -1002,6 +1091,41 @@ export default function TeamChat() {
     }
   };
 
+  const startEditing = (item: ChatMessageItem) => {
+    setError("");
+    setEditingId(item.id);
+    setEditDraft(item.message || "");
+  };
+
+  const saveMessageEdit = async (item: ChatMessageItem) => {
+    if (savingEdit) return;
+    const trimmed = editDraft.trim();
+    const hasAttachments = Boolean(item.attachments && item.attachments.length > 0);
+    if (!trimmed && !hasAttachments) {
+      setError("Message cannot be empty.");
+      return;
+    }
+    setSavingEdit(true);
+    setError("");
+    try {
+      const res = await API.patch<{ data: { message: ChatMessageItem } }>(
+        `/chat/messages/${item.id}`,
+        { message: trimmed }
+      );
+      const updated = res.data.data.message;
+      if (updated?.id) {
+        applyEditedMessages([updated]);
+      }
+      setEditingId(null);
+      setEditDraft("");
+    } catch (err: unknown) {
+      const apiMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setError(apiMsg || "Unable to edit message.");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
   const handlePaste = (event: ClipboardEvent<HTMLInputElement>) => {
     const pastedFiles = event.clipboardData?.files;
     if (pastedFiles && pastedFiles.length > 0) {
@@ -1193,6 +1317,11 @@ export default function TeamChat() {
               const item = entry.message;
               const isOwn = item.userId === user?.id;
               const isDeleted = isMessageDeleted(item);
+              const isEditingThis = editingId === item.id;
+              const canEdit =
+                isOwn &&
+                !isDeleted &&
+                isWithinMessageWindow(item.createdAt, EDIT_MESSAGE_WINDOW_MS, nowMs);
               const isHighlighted = highlightedId === item.id;
               const attachments = isDeleted ? [] : item.attachments || [];
               const tickState = item.receiptSummary?.tickState || "sent";
@@ -1230,12 +1359,64 @@ export default function TeamChat() {
                         <span aria-hidden="true">⊘</span>
                         <span>This message was deleted</span>
                       </p>
+                    ) : isEditingThis ? (
+                      <div className={styles.chatInlineEditForm}>
+                        <textarea
+                          className={styles.chatInlineEditInput}
+                          value={editDraft}
+                          maxLength={2000}
+                          onChange={(event) => setEditDraft(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" && !event.shiftKey) {
+                              event.preventDefault();
+                              void saveMessageEdit(item);
+                            } else if (event.key === "Escape") {
+                              event.preventDefault();
+                              setEditingId(null);
+                              setEditDraft("");
+                            }
+                          }}
+                          aria-label="Edit message"
+                        />
+                        <div className={styles.chatInlineEditActions}>
+                          <button
+                            type="button"
+                            className={styles.chatToolBtn}
+                            onClick={() => {
+                              setEditingId(null);
+                              setEditDraft("");
+                            }}
+                            disabled={savingEdit}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.chatSendBtn}
+                            style={{ height: 32, padding: "0 14px", fontSize: 12 }}
+                            onClick={() => void saveMessageEdit(item)}
+                            disabled={savingEdit}
+                          >
+                            {savingEdit ? "Saving..." : "Save"}
+                          </button>
+                        </div>
+                      </div>
                     ) : (
-                      item.message && (
-                        <p className={styles.chatMessageText}>
-                          {renderMessageText(item.message, members)}
-                        </p>
-                      )
+                      <>
+                        {item.message && (
+                          <p className={styles.chatMessageText}>
+                            {renderMessageText(item.message, members)}
+                          </p>
+                        )}
+                        {item.editedAt && (
+                          <span
+                            className={styles.chatEditedLabel}
+                            title={`Edited ${formatFullTimestamp(item.editedAt)}`}
+                          >
+                            Edited
+                          </span>
+                        )}
+                      </>
                     )}
 
                     {attachments.length > 0 && (
@@ -1347,6 +1528,15 @@ export default function TeamChat() {
                             }}
                           >
                             Reply
+                          </button>
+                        )}
+                        {canEdit && !isEditingThis && (
+                          <button
+                            type="button"
+                            className={styles.chatActionPill}
+                            onClick={() => startEditing(item)}
+                          >
+                            Edit
                           </button>
                         )}
                         {isOwn && !isDeleted && (
@@ -1788,54 +1978,63 @@ export default function TeamChat() {
         </div>
       )}
 
-      {deleteTarget && (
-        <div
-          className={styles.chatModalBackdrop}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Delete message"
-          onClick={() => {
-            if (!deleting) setDeleteTarget(null);
-          }}
-        >
-          <div className={styles.chatDeleteModal} onClick={(event) => event.stopPropagation()}>
-            <h2>Delete message?</h2>
-            <p>
-              {isMessageDeleted(deleteTarget)
-                ? "Remove this deleted message notice from your chat view."
-                : "Choose whether to remove this message only for you or delete it for everyone in Team Chat."}
-            </p>
-            <div className={styles.chatDeleteActions}>
-              {!isMessageDeleted(deleteTarget) && deleteTarget.userId === user?.id && (
+      {deleteTarget && (() => {
+        const deletedAlready = isMessageDeleted(deleteTarget);
+        const canDeleteEveryone =
+          !deletedAlready &&
+          deleteTarget.userId === user?.id &&
+          isWithinMessageWindow(deleteTarget.createdAt, DELETE_EVERYONE_WINDOW_MS, nowMs);
+        return (
+          <div
+            className={styles.chatModalBackdrop}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Delete message"
+            onClick={() => {
+              if (!deleting) setDeleteTarget(null);
+            }}
+          >
+            <div className={styles.chatDeleteModal} onClick={(event) => event.stopPropagation()}>
+              <h2>Delete message?</h2>
+              <p>
+                {deletedAlready
+                  ? "Remove this deleted message notice from your chat view."
+                  : canDeleteEveryone
+                    ? "Choose whether to remove this message only for you or delete it for everyone in Team Chat."
+                    : "Delete for everyone is only available within 6 hours of sending. You can still remove this message from your own view."}
+              </p>
+              <div className={styles.chatDeleteActions}>
+                {canDeleteEveryone && (
+                  <button
+                    type="button"
+                    className={`${styles.chatDeleteOptionBtn} ${styles.isDanger}`}
+                    onClick={() => void handleDeleteMessage("everyone")}
+                    disabled={deleting}
+                  >
+                    {deleting ? "Deleting..." : "Delete for everyone"}
+                  </button>
+                )}
                 <button
                   type="button"
-                  className={`${styles.chatDeleteOptionBtn} ${styles.isDanger}`}
-                  onClick={() => void handleDeleteMessage("everyone")}
+                  className={styles.chatDeleteOptionBtn}
+                  onClick={() => void handleDeleteMessage("me")}
                   disabled={deleting}
                 >
-                  {deleting ? "Deleting..." : "Delete for everyone"}
+                  {deleting ? "Deleting..." : "Delete for me"}
                 </button>
-              )}
-              <button
-                type="button"
-                className={styles.chatDeleteOptionBtn}
-                onClick={() => void handleDeleteMessage("me")}
-                disabled={deleting}
-              >
-                {deleting ? "Deleting..." : "Delete for me"}
-              </button>
-              <button
-                type="button"
-                className={styles.chatDeleteOptionBtn}
-                onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
-              >
-                Cancel
-              </button>
+                <button
+                  type="button"
+                  className={styles.chatDeleteOptionBtn}
+                  onClick={() => setDeleteTarget(null)}
+                  disabled={deleting}
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </section>
   );
 }

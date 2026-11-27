@@ -202,6 +202,7 @@ function formatChatMessage(row, activeUserCount) {
     messageType: isDeletedForEveryone ? "deleted" : plain.messageType || "text",
     message: isDeletedForEveryone ? "" : plain.message || "",
     mentions: isDeletedForEveryone ? [] : Array.isArray(plain.mentions) ? plain.mentions : [],
+    editedAt: isDeletedForEveryone ? null : plain.editedAt || null,
     deletedForEveryoneAt: plain.deletedForEveryoneAt || null,
     deletedById: plain.deletedById || null,
     createdAt: plain.createdAt,

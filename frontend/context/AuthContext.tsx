@@ -176,6 +176,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               message?: { id?: number; userId?: number };
               updates?: Array<{ messageId: number; receiptSummary: unknown }>;
               deletions?: Array<{ id: number; deletedForEveryoneAt?: string }>;
+              messages?: Array<{ id: number }>;
             };
             if (payload.type === "notification") handleNotification(payload.notification);
             if (payload.type === "chat_message" && payload.message) {
@@ -193,6 +194,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             }
             if (payload.type === "chat_message_deleted" && Array.isArray(payload.deletions)) {
               window.dispatchEvent(new CustomEvent("taskmanager:chat-deleted", { detail: payload.deletions }));
+            }
+            if (payload.type === "chat_message_edited" && Array.isArray(payload.messages)) {
+              window.dispatchEvent(new CustomEvent("taskmanager:chat-edited", { detail: payload.messages }));
             }
           } catch {
             // Ignore malformed messages and keep the connection alive.

@@ -1006,6 +1006,41 @@
   color: #0284c7 !important;
 }
 
+.chatEditedLabel {
+  display: inline-block;
+  margin-top: 3px;
+  font-size: 11px;
+  font-style: italic;
+  color: var(--text-secondary);
+}
+
+.chatInlineEditForm {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+  min-width: min(300px, 65vw);
+}
+
+.chatInlineEditInput {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 60px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.chatInlineEditActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 @media (max-width: 760px) {
   .chatMessageRow {
     max-width: 90%;

@@ -34,6 +34,9 @@ export type ChatReceiptSummary = {
   tickState: "sent" | "delivered" | "seen";
 };
 
+export const DELETE_EVERYONE_WINDOW_MS = 6 * 60 * 60 * 1000;
+export const EDIT_MESSAGE_WINDOW_MS = 3 * 60 * 60 * 1000;
+
 export type ChatMessageItem = {
   id: number;
   userId: number;
@@ -41,6 +44,7 @@ export type ChatMessageItem = {
   messageType?: string;
   message: string;
   mentions: number[];
+  editedAt?: string | null;
   deletedForEveryoneAt?: string | null;
   deletedById?: number | null;
   createdAt: string;
@@ -49,6 +53,12 @@ export type ChatMessageItem = {
   replyTo?: ChatReplyReference | null;
   receiptSummary?: ChatReceiptSummary;
 };
+
+export function isWithinMessageWindow(createdAt: string, windowMs: number, nowMs: number): boolean {
+  const createdMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdMs)) return false;
+  return nowMs - createdMs <= windowMs;
+}
 
 export function getDateKey(dateValue: string | Date): string {
   const date = dateValue instanceof Date ? dateValue : new Date(dateValue);

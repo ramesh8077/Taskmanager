@@ -14,6 +14,23 @@ const {
 
 const ATTACHMENT_INLINE_LIMIT_BYTES = 3 * 1024 * 1024;
 const ATTACHMENT_CHUNK_BYTES = 2 * 1024 * 1024;
+const DELETE_EVERYONE_WINDOW_MS = 6 * 60 * 60 * 1000;
+const EDIT_MESSAGE_WINDOW_MS = 3 * 60 * 60 * 1000;
+
+function extractMentionedUsers(rawMessage, users = []) {
+  if (!rawMessage) return [];
+  return users.filter((user) => {
+    const escapedName = user.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(^|\\s)@${escapedName}(?=$|[\\s,.!?])`, "i").test(rawMessage);
+  });
+}
+
+function isWithinTimeWindow(createdAt, windowMs) {
+  if (!createdAt) return true;
+  const createdMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdMs)) return true;
+  return Date.now() - createdMs <= windowMs;
+}
 
 function parsePositiveIds(values, maxCount = 200) {
   if (!Array.isArray(values)) return [];
@@ -239,12 +256,7 @@ async function createMessage(req, res) {
       where: { status: "ACTIVE", isActive: true },
       attributes: ["id", "name"],
     });
-    const mentioned = rawMessage
-      ? users.filter((user) => {
-          const escapedName = user.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          return new RegExp(`(^|\\s)@${escapedName}(?=$|[\\s,.!?])`, "i").test(rawMessage);
-        })
-      : [];
+    const mentioned = extractMentionedUsers(rawMessage, users);
 
     const created = await db.sequelize.transaction(async (transaction) => {
       const msg = await db.ChatMessage.create(
@@ -453,12 +465,12 @@ async function recordReceipts(req, res) {
 }
 
 async function computeStatusesAndDeletions(messageIds) {
-  if (!messageIds.length) return { statuses: {}, deletedIds: [] };
+  if (!messageIds.length) return { statuses: {}, deletedIds: [], editedMessages: [] };
   const [activeUserCount, messages, receipts] = await Promise.all([
     db.User.count({ where: { status: "ACTIVE", isActive: true } }),
     db.ChatMessage.findAll({
       where: { id: { [Op.in]: messageIds } },
-      attributes: ["id", "userId", "deletedForEveryoneAt", "messageType"],
+      attributes: ["id", "userId", "message", "mentions", "editedAt", "deletedForEveryoneAt", "messageType"],
       raw: true,
     }),
     db.ChatMessageReceipt.findAll({
@@ -475,13 +487,21 @@ async function computeStatusesAndDeletions(messageIds) {
   }
   const statuses = {};
   const deletedIds = [];
+  const editedMessages = [];
   for (const msg of messages) {
     statuses[msg.id] = buildReceiptSummary(msg.userId, receiptsByMsg.get(msg.id) || [], activeUserCount);
     if (msg.deletedForEveryoneAt || msg.messageType === "deleted") {
       deletedIds.push(msg.id);
+    } else if (msg.editedAt) {
+      editedMessages.push({
+        id: msg.id,
+        message: msg.message || "",
+        mentions: Array.isArray(msg.mentions) ? msg.mentions : [],
+        editedAt: msg.editedAt,
+      });
     }
   }
-  return { statuses, deletedIds };
+  return { statuses, deletedIds, editedMessages };
 }
 
 async function computeStatusesForIds(messageIds) {
@@ -495,11 +515,82 @@ async function getMessageStatuses(req, res) {
       .split(",")
       .map((part) => Number(part.trim()));
     const messageIds = parsePositiveIds(rawIds, 150);
-    const { statuses, deletedIds } = await computeStatusesAndDeletions(messageIds);
-    return res.json({ success: true, data: { statuses, deletedIds } });
+    const { statuses, deletedIds, editedMessages } = await computeStatusesAndDeletions(messageIds);
+    return res.json({ success: true, data: { statuses, deletedIds, editedMessages } });
   } catch (error) {
     console.error("Get message statuses failed:", error.message);
     return res.status(500).json({ success: false, message: "Unable to load message delivery status." });
+  }
+}
+
+async function editMessage(req, res) {
+  try {
+    const messageId = Number(req.params.id);
+    if (!Number.isSafeInteger(messageId) || messageId < 1) {
+      return res.status(400).json({ success: false, message: "Invalid message ID." });
+    }
+    const rawMessage = typeof req.body?.message === "string" ? req.body.message.trim() : "";
+    if (rawMessage.length > 2000) {
+      return res.status(400).json({ success: false, message: "Message must not exceed 2000 characters." });
+    }
+
+    const messageRow = await db.ChatMessage.findByPk(messageId, {
+      include: [
+        {
+          model: db.ChatAttachment,
+          as: "attachments",
+          attributes: ["id"],
+          separate: true,
+        },
+      ],
+    });
+    if (!messageRow) {
+      return res.status(404).json({ success: false, message: "Message not found." });
+    }
+    if (Number(messageRow.userId) !== Number(req.user.id)) {
+      return res.status(403).json({ success: false, message: "Only the sender can edit this message." });
+    }
+    if (messageRow.deletedForEveryoneAt || messageRow.messageType === "deleted") {
+      return res.status(400).json({ success: false, message: "Deleted messages cannot be edited." });
+    }
+    if (!isWithinTimeWindow(messageRow.createdAt, EDIT_MESSAGE_WINDOW_MS)) {
+      return res.status(400).json({
+        success: false,
+        message: "Messages can only be edited within 3 hours of sending.",
+      });
+    }
+    const hasAttachments = Array.isArray(messageRow.attachments) && messageRow.attachments.length > 0;
+    if (!rawMessage && !hasAttachments) {
+      return res.status(400).json({ success: false, message: "Message cannot be empty." });
+    }
+
+    const users = await db.User.findAll({
+      where: { status: "ACTIVE", isActive: true },
+      attributes: ["id", "name"],
+    });
+    const mentioned = extractMentionedUsers(rawMessage, users);
+    const editedAt = new Date();
+
+    await db.ChatMessage.update(
+      {
+        message: rawMessage,
+        mentions: mentioned.map((user) => user.id),
+        editedAt,
+      },
+      { where: { id: messageId } }
+    );
+
+    const updatedRow = await db.ChatMessage.findByPk(messageId, { include: getChatMessageInclude() });
+    triggerRealtimePoll();
+    return res.json({
+      success: true,
+      data: {
+        message: updatedRow ? formatChatMessage(updatedRow, users.length) : null,
+      },
+    });
+  } catch (error) {
+    console.error("Edit chat message failed:", error);
+    return res.status(500).json({ success: false, message: "Unable to edit message." });
   }
 }
 
@@ -534,6 +625,13 @@ async function deleteMessage(req, res) {
       return res.status(403).json({
         success: false,
         message: "Only the sender can delete a message for everyone.",
+      });
+    }
+
+    if (!isWithinTimeWindow(messageRow.createdAt, DELETE_EVERYONE_WINDOW_MS)) {
+      return res.status(400).json({
+        success: false,
+        message: "Messages can only be deleted for everyone within 6 hours of sending.",
       });
     }
 
@@ -681,5 +779,6 @@ module.exports = {
   recordReceipts,
   getMessageStatuses,
   getMessageInfo,
+  editMessage,
   deleteMessage,
 };

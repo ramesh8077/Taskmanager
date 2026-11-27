@@ -528,3 +528,87 @@ test("deleteMessage scope 'everyone' requires sender and deletes attachments + m
     db.sequelize.transaction = originalTransaction;
   }
 });
+
+test("deleteMessage blocks scope 'everyone' after 6 hours", async () => {
+  const originalChatFindByPk = db.ChatMessage.findByPk;
+  const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString();
+  db.ChatMessage.findByPk = async () => ({ id: 61, userId: 1, createdAt: sevenHoursAgo });
+
+  try {
+    const res = createMockRes();
+    await chatController.deleteMessage(
+      { params: { id: "61" }, query: { scope: "everyone" }, user: { id: 1 } },
+      res
+    );
+    assert.equal(res.statusCode, 400);
+    assert.match(res.body.message, /6 hours/i);
+  } finally {
+    db.ChatMessage.findByPk = originalChatFindByPk;
+  }
+});
+
+test("editMessage allows sender within 3 hours, sets editedAt, and blocks after 3 hours or non-sender", async () => {
+  const originalChatFindByPk = db.ChatMessage.findByPk;
+  const originalChatUpdate = db.ChatMessage.update;
+  const originalUserFindAll = db.User.findAll;
+
+  let currentRecord = {
+    id: 71,
+    userId: 1,
+    message: "Original text",
+    messageType: "text",
+    deletedForEveryoneAt: null,
+    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    attachments: [],
+    receipts: [],
+    author: { id: 1, name: "Ramesh" },
+  };
+  let updatedFields = null;
+
+  db.User.findAll = async () => [
+    { id: 1, name: "Ramesh" },
+    { id: 2, name: "Nisha" },
+  ];
+  db.ChatMessage.findByPk = async () => currentRecord;
+  db.ChatMessage.update = async (fields) => {
+    updatedFields = fields;
+    currentRecord = { ...currentRecord, ...fields };
+    return [1];
+  };
+
+  try {
+    const forbiddenRes = createMockRes();
+    await chatController.editMessage(
+      { params: { id: "71" }, body: { message: "Hijack" }, user: { id: 2 } },
+      forbiddenRes
+    );
+    assert.equal(forbiddenRes.statusCode, 403);
+
+    const okRes = createMockRes();
+    await chatController.editMessage(
+      { params: { id: "71" }, body: { message: "Updated @Nisha please check" }, user: { id: 1 } },
+      okRes
+    );
+    assert.equal(okRes.statusCode, 200);
+    assert.equal(updatedFields.message, "Updated @Nisha please check");
+    assert.deepEqual(updatedFields.mentions, [2]);
+    assert.ok(updatedFields.editedAt instanceof Date);
+    assert.ok(okRes.body.data.message.editedAt);
+
+    currentRecord = {
+      ...currentRecord,
+      createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+    };
+    const expiredRes = createMockRes();
+    await chatController.editMessage(
+      { params: { id: "71" }, body: { message: "Too late" }, user: { id: 1 } },
+      expiredRes
+    );
+    assert.equal(expiredRes.statusCode, 400);
+    assert.match(expiredRes.body.message, /3 hours/i);
+  } finally {
+    db.ChatMessage.findByPk = originalChatFindByPk;
+    db.ChatMessage.update = originalChatUpdate;
+    db.User.findAll = originalUserFindAll;
+  }
+});
