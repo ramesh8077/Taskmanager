@@ -43,6 +43,7 @@ db.ChatMessage = require("./chatMessage.model")(sequelize);
 db.ChatAttachment = require("./chatAttachment.model")(sequelize);
 db.ChatAttachmentChunk = require("./chatAttachmentChunk.model")(sequelize);
 db.ChatMessageReceipt = require("./chatMessageReceipt.model")(sequelize);
+db.ChatMessageHidden = require("./chatMessageHidden.model")(sequelize);
 db.PushSubscription = require("./pushSubscription.model")(sequelize);
 db.Meeting = require("./meeting.model")(sequelize);
 db.MeetingParticipant = require("./meetingParticipant.model")(sequelize);
@@ -352,6 +353,10 @@ db.ChatMessage.hasMany(db.ChatMessageReceipt, { foreignKey: "messageId", as: "re
 db.ChatMessageReceipt.belongsTo(db.ChatMessage, { foreignKey: "messageId", as: "chatMessage" });
 db.ChatMessageReceipt.belongsTo(db.User, { foreignKey: "userId", as: "user" });
 db.User.hasMany(db.ChatMessageReceipt, { foreignKey: "userId", as: "chatReceipts" });
+db.ChatMessage.hasMany(db.ChatMessageHidden, { foreignKey: "messageId", as: "hiddenEntries", onDelete: "CASCADE" });
+db.ChatMessageHidden.belongsTo(db.ChatMessage, { foreignKey: "messageId", as: "chatMessage" });
+db.ChatMessageHidden.belongsTo(db.User, { foreignKey: "userId", as: "user" });
+db.User.hasMany(db.ChatMessageHidden, { foreignKey: "userId", as: "hiddenChatMessages" });
 db.User.hasMany(db.PushSubscription, { foreignKey: "userId", as: "pushSubscriptions", onDelete: "CASCADE" });
 db.PushSubscription.belongsTo(db.User, { foreignKey: "userId", as: "user" });
 db.User.hasMany(db.Meeting, { foreignKey: "hostId", as: "hostedMeetings" });

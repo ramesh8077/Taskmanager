@@ -7,4 +7,6 @@ module.exports = (sequelize) => sequelize.define("ChatMessage", {
   messageType: { type: DataTypes.STRING(24), allowNull: false, defaultValue: "text" },
   message: { type: DataTypes.STRING(2000), allowNull: false, defaultValue: "" },
   mentions: { type: DataTypes.JSON, allowNull: false, defaultValue: [] },
+  deletedForEveryoneAt: { type: DataTypes.DATE, allowNull: true },
+  deletedById: { type: DataTypes.INTEGER, allowNull: true },
 }, { tableName: "chat_messages", timestamps: true, underscored: true });

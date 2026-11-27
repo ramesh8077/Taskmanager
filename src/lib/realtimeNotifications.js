@@ -95,6 +95,7 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
     let lastId = session.lastId;
     let lastChatId = session.lastChatId;
     let lastReceiptSyncAt = new Date();
+    let lastDeletedSyncAt = new Date();
     let querying = false;
     let pendingPoll = false;
 
@@ -183,6 +184,23 @@ function attachRealtimeNotifications(server, ensureDatabase = () => db.sequelize
             if (client.readyState === WebSocket.OPEN && updates.length > 0) {
               client.send(JSON.stringify({ type: "chat_receipts", updates }));
             }
+          }
+        }
+        const deletedMessages = await db.ChatMessage.findAll({
+          where: { deletedForEveryoneAt: { [Op.gt]: lastDeletedSyncAt } },
+          attributes: ["id", "deletedForEveryoneAt"],
+          order: [["deletedForEveryoneAt", "ASC"]],
+          limit: 50,
+          raw: true,
+        });
+        if (deletedMessages.length > 0) {
+          lastDeletedSyncAt = deletedMessages.reduce(
+            (latest, row) =>
+              new Date(row.deletedForEveryoneAt) > latest ? new Date(row.deletedForEveryoneAt) : latest,
+            lastDeletedSyncAt
+          );
+          if (client.readyState === WebSocket.OPEN) {
+            client.send(JSON.stringify({ type: "chat_message_deleted", deletions: deletedMessages }));
           }
         }
       } catch (error) {

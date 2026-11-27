@@ -422,3 +422,109 @@ test("resolveAttachmentMeta supports image, video, audio, and document formats",
     }
   );
 });
+
+test("deleteMessage hides message only for caller when scope is 'me'", async () => {
+  const originalChatFindByPk = db.ChatMessage.findByPk;
+  const originalHiddenBulkCreate = db.ChatMessageHidden.bulkCreate;
+  const originalHiddenFindAll = db.ChatMessageHidden.findAll;
+  const originalChatFindAll = db.ChatMessage.findAll;
+  const originalUserCount = db.User.count;
+
+  const hiddenRows = [];
+  let capturedListWhere = null;
+
+  db.ChatMessage.findByPk = async () => ({ id: 88, userId: 2 });
+  db.ChatMessageHidden.bulkCreate = async (rows) => {
+    hiddenRows.push(...rows);
+    return rows;
+  };
+  db.ChatMessageHidden.findAll = async () => hiddenRows;
+  db.User.count = async () => 2;
+  db.ChatMessage.findAll = async (options) => {
+    capturedListWhere = options.where;
+    return [];
+  };
+
+  try {
+    const res = createMockRes();
+    await chatController.deleteMessage(
+      { params: { id: "88" }, query: { scope: "me" }, user: { id: 1 } },
+      res
+    );
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.data.scope, "me");
+    assert.deepEqual(hiddenRows, [{ messageId: 88, userId: 1 }]);
+
+    const listRes = createMockRes();
+    await chatController.listMessages({ query: {}, user: { id: 1 } }, listRes);
+    assert.equal(listRes.statusCode, 200);
+    assert.ok(capturedListWhere);
+  } finally {
+    db.ChatMessage.findByPk = originalChatFindByPk;
+    db.ChatMessageHidden.bulkCreate = originalHiddenBulkCreate;
+    db.ChatMessageHidden.findAll = originalHiddenFindAll;
+    db.ChatMessage.findAll = originalChatFindAll;
+    db.User.count = originalUserCount;
+  }
+});
+
+test("deleteMessage scope 'everyone' requires sender and deletes attachments + message text", async () => {
+  const originalChatFindByPk = db.ChatMessage.findByPk;
+  const originalChatUpdate = db.ChatMessage.update;
+  const originalAttachmentDestroy = db.ChatAttachment.destroy;
+  const originalUserCount = db.User.count;
+  const originalTransaction = db.sequelize.transaction;
+
+  let destroyedMsgId = null;
+  let updatedFields = null;
+
+  db.sequelize.transaction = async (cb) => cb({ fake: true });
+  db.User.count = async () => 3;
+  db.ChatAttachment.destroy = async ({ where }) => {
+    destroyedMsgId = where.messageId;
+  };
+  db.ChatMessage.update = async (fields) => {
+    updatedFields = fields;
+    return [1];
+  };
+  db.ChatMessage.findByPk = async (id, opts) => {
+    if (!opts) return { id, userId: 1, message: "secret" };
+    return {
+      id,
+      userId: 1,
+      message: "",
+      messageType: "deleted",
+      deletedForEveryoneAt: updatedFields?.deletedForEveryoneAt || new Date(),
+      author: { id: 1, name: "Ramesh" },
+      attachments: [],
+      receipts: [],
+    };
+  };
+
+  try {
+    const forbiddenRes = createMockRes();
+    await chatController.deleteMessage(
+      { params: { id: "50" }, query: { scope: "everyone" }, user: { id: 2 } },
+      forbiddenRes
+    );
+    assert.equal(forbiddenRes.statusCode, 403);
+
+    const okRes = createMockRes();
+    await chatController.deleteMessage(
+      { params: { id: "50" }, query: { scope: "everyone" }, user: { id: 1 } },
+      okRes
+    );
+    assert.equal(okRes.statusCode, 200);
+    assert.equal(destroyedMsgId, 50);
+    assert.equal(updatedFields.messageType, "deleted");
+    assert.equal(updatedFields.message, "");
+    assert.equal(okRes.body.data.message.messageType, "deleted");
+    assert.ok(okRes.body.data.message.deletedForEveryoneAt);
+  } finally {
+    db.ChatMessage.findByPk = originalChatFindByPk;
+    db.ChatMessage.update = originalChatUpdate;
+    db.ChatAttachment.destroy = originalAttachmentDestroy;
+    db.User.count = originalUserCount;
+    db.sequelize.transaction = originalTransaction;
+  }
+});

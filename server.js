@@ -136,6 +136,7 @@ const startServer = async () => {
       "202611270001-user-deadline-permission.js",
       "202611270002-team-chat-enhancements.js",
       "202611270003-chat-attachment-chunks.js",
+      "202611270004-chat-message-delete.js",
     ];
     const missingMigrations = requiredMigrations.filter(
       (migration) => !migrationRows.some((row) => row.migration_name === migration)

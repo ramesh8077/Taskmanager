@@ -101,6 +101,7 @@ function ensureDB() {
           "202611270001-user-deadline-permission.js",
           "202611270002-team-chat-enhancements.js",
           "202611270003-chat-attachment-chunks.js",
+          "202611270004-chat-message-delete.js",
         ];
         if (
           requiredMigrations.some(

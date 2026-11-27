@@ -179,6 +179,12 @@
   padding: 16px 18px;
   display: flex;
   flex-direction: column;
+}
+
+.chatMessagesInner {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
@@ -856,6 +862,148 @@
   color: var(--text-secondary);
   font-size: 14px;
   padding: 24px;
+}
+
+.chatDeletedText {
+  margin: 2px 0 0;
+  font-size: 13px;
+  font-style: italic;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chatActionPillDanger:hover {
+  background: rgb(239 68 68 / 12%);
+  color: #dc2626;
+}
+
+.chatDeleteModal {
+  width: min(100%, 400px);
+  border-radius: 16px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: 0 20px 48px rgb(0 0 0 / 28%);
+  padding: 18px 20px;
+  display: grid;
+  gap: 12px;
+}
+
+.chatDeleteModal h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.chatDeleteModal p {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.chatDeleteActions {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.chatDeleteOptionBtn {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 10px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-primary);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 14px;
+}
+
+.chatDeleteOptionBtn:hover:not(:disabled) {
+  border-color: var(--accent, #f04422);
+}
+
+.chatDeleteOptionBtn.isDanger {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #fff;
+}
+
+.chatDeleteOptionBtn.isDanger:hover:not(:disabled) {
+  background: #b91c1c;
+}
+
+.chatDeleteOptionBtn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Override global `button, button * { color: #fff !important }` inside Team Chat */
+.chatContainer .chatSearchClear,
+.chatContainer .chatLoadOlderButton,
+.chatContainer .chatScrollLatestBtn,
+.chatContainer .chatToolBtn,
+.chatContainer .chatToolBtn *,
+.chatContainer .chatDownloadBtn,
+.chatContainer .chatDownloadBtn *,
+.chatContainer .chatMentionOption,
+.chatContainer .chatDeleteOptionBtn,
+.chatContainer .chatDeleteOptionBtn *,
+.chatContainer .chatSearchItem,
+.chatContainer .chatSearchItem strong {
+  color: var(--text-primary) !important;
+}
+
+.chatContainer .chatActionPill,
+.chatContainer .chatSearchItem time,
+.chatContainer .chatSearchItem .chatSearchSnippet,
+.chatContainer .chatMentionOption span,
+.chatContainer .chatReplyQuote span {
+  color: var(--text-secondary) !important;
+}
+
+.chatContainer .chatReplyQuote strong {
+  color: var(--accent, #f04422) !important;
+}
+
+.chatContainer .chatAlertDismiss,
+.chatContainer .chatActionPillDanger:hover {
+  color: #dc2626 !important;
+}
+
+.chatContainer .chatActionPill:hover {
+  color: var(--text-primary) !important;
+}
+
+.chatContainer .chatToolBtn:hover:not(:disabled),
+.chatContainer .chatDownloadBtn:hover {
+  color: var(--accent, #f04422) !important;
+}
+
+.chatContainer .chatToolBtn.isRecording,
+.chatContainer .chatToolBtn.isRecording *,
+.chatContainer .chatSendBtn,
+.chatContainer .chatSendBtn *,
+.chatContainer .chatDeleteOptionBtn.isDanger,
+.chatContainer .chatDeleteOptionBtn.isDanger * {
+  color: #fff !important;
+}
+
+.chatContainer .chatTickSent,
+.chatContainer .chatTickSent *,
+.chatContainer .chatTickDelivered,
+.chatContainer .chatTickDelivered * {
+  color: #64748b !important;
+}
+
+.chatContainer .chatTickSeen,
+.chatContainer .chatTickSeen * {
+  color: #0284c7 !important;
 }
 
 @media (max-width: 760px) {

@@ -62,9 +62,30 @@ async function listMentionableMembers(req, res) {
   }
 }
 
+async function getHiddenMessageIds(userId) {
+  if (!userId || !db.ChatMessageHidden) return [];
+  const rows = await db.ChatMessageHidden.findAll({
+    where: { userId },
+    attributes: ["messageId"],
+    raw: true,
+  });
+  return rows.map((row) => Number(row.messageId)).filter((id) => Number.isSafeInteger(id) && id > 0);
+}
+
+function combineAndWhere(baseWhere, hiddenIds) {
+  if (!hiddenIds.length) return baseWhere;
+  if (!baseWhere || Object.keys(baseWhere).length === 0) {
+    return { id: { [Op.notIn]: hiddenIds } };
+  }
+  return { [Op.and]: [baseWhere, { id: { [Op.notIn]: hiddenIds } }] };
+}
+
 async function listMessages(req, res) {
   try {
-    const activeUserCount = await db.User.count({ where: { status: "ACTIVE", isActive: true } });
+    const [activeUserCount, hiddenIds] = await Promise.all([
+      db.User.count({ where: { status: "ACTIVE", isActive: true } }),
+      getHiddenMessageIds(req.user?.id),
+    ]);
     const include = getChatMessageInclude();
 
     const search = typeof req.query.search === "string" ? req.query.search.trim() : "";
@@ -91,7 +112,10 @@ async function listMessages(req, res) {
       if (authorIds.length) orConditions.push({ userId: { [Op.in]: authorIds } });
 
       const rows = await db.ChatMessage.findAll({
-        where: { [Op.or]: orConditions },
+        where: combineAndWhere(
+          { deletedForEveryoneAt: null, [Op.or]: orConditions },
+          hiddenIds
+        ),
         include,
         order: [["createdAt", "DESC"], ["id", "DESC"]],
         limit: 50,
@@ -104,13 +128,13 @@ async function listMessages(req, res) {
     if (Number.isSafeInteger(around) && around > 0) {
       const [beforeAndTarget, afterRows] = await Promise.all([
         db.ChatMessage.findAll({
-          where: { id: { [Op.lte]: around } },
+          where: combineAndWhere({ id: { [Op.lte]: around } }, hiddenIds),
           include,
           order: [["createdAt", "DESC"], ["id", "DESC"]],
           limit: 41,
         }),
         db.ChatMessage.findAll({
-          where: { id: { [Op.gt]: around } },
+          where: combineAndWhere({ id: { [Op.gt]: around } }, hiddenIds),
           include,
           order: [["createdAt", "ASC"], ["id", "ASC"]],
           limit: 40,
@@ -128,7 +152,7 @@ async function listMessages(req, res) {
     const after = Number(req.query.after);
     if (Number.isSafeInteger(after) && after > 0) {
       const rows = await db.ChatMessage.findAll({
-        where: { id: { [Op.gt]: after } },
+        where: combineAndWhere({ id: { [Op.gt]: after } }, hiddenIds),
         include,
         order: [["id", "ASC"]],
         limit: 100,
@@ -139,7 +163,8 @@ async function listMessages(req, res) {
 
     const limit = Math.min(Math.max(Number(req.query.limit) || 60, 1), 100);
     const before = Number(req.query.before);
-    const where = Number.isSafeInteger(before) && before > 0 ? { id: { [Op.lt]: before } } : {};
+    const baseWhere = Number.isSafeInteger(before) && before > 0 ? { id: { [Op.lt]: before } } : {};
+    const where = combineAndWhere(baseWhere, hiddenIds);
     const rows = await db.ChatMessage.findAll({
       where,
       include,
@@ -427,13 +452,13 @@ async function recordReceipts(req, res) {
   }
 }
 
-async function computeStatusesForIds(messageIds) {
-  if (!messageIds.length) return {};
+async function computeStatusesAndDeletions(messageIds) {
+  if (!messageIds.length) return { statuses: {}, deletedIds: [] };
   const [activeUserCount, messages, receipts] = await Promise.all([
     db.User.count({ where: { status: "ACTIVE", isActive: true } }),
     db.ChatMessage.findAll({
       where: { id: { [Op.in]: messageIds } },
-      attributes: ["id", "userId"],
+      attributes: ["id", "userId", "deletedForEveryoneAt", "messageType"],
       raw: true,
     }),
     db.ChatMessageReceipt.findAll({
@@ -449,9 +474,18 @@ async function computeStatusesForIds(messageIds) {
     receiptsByMsg.get(key).push(r);
   }
   const statuses = {};
+  const deletedIds = [];
   for (const msg of messages) {
     statuses[msg.id] = buildReceiptSummary(msg.userId, receiptsByMsg.get(msg.id) || [], activeUserCount);
+    if (msg.deletedForEveryoneAt || msg.messageType === "deleted") {
+      deletedIds.push(msg.id);
+    }
   }
+  return { statuses, deletedIds };
+}
+
+async function computeStatusesForIds(messageIds) {
+  const { statuses } = await computeStatusesAndDeletions(messageIds);
   return statuses;
 }
 
@@ -461,11 +495,80 @@ async function getMessageStatuses(req, res) {
       .split(",")
       .map((part) => Number(part.trim()));
     const messageIds = parsePositiveIds(rawIds, 150);
-    const statuses = await computeStatusesForIds(messageIds);
-    return res.json({ success: true, data: { statuses } });
+    const { statuses, deletedIds } = await computeStatusesAndDeletions(messageIds);
+    return res.json({ success: true, data: { statuses, deletedIds } });
   } catch (error) {
     console.error("Get message statuses failed:", error.message);
     return res.status(500).json({ success: false, message: "Unable to load message delivery status." });
+  }
+}
+
+async function deleteMessage(req, res) {
+  try {
+    const messageId = Number(req.params.id);
+    if (!Number.isSafeInteger(messageId) || messageId < 1) {
+      return res.status(400).json({ success: false, message: "Invalid message ID." });
+    }
+    const rawScope = req.query?.scope || req.body?.scope || "me";
+    const scope = String(rawScope).trim().toLowerCase();
+    if (scope !== "me" && scope !== "everyone") {
+      return res.status(400).json({ success: false, message: "Delete scope must be 'me' or 'everyone'." });
+    }
+
+    const messageRow = await db.ChatMessage.findByPk(messageId);
+    if (!messageRow) {
+      return res.status(404).json({ success: false, message: "Message not found." });
+    }
+
+    if (scope === "me") {
+      if (db.ChatMessageHidden) {
+        await db.ChatMessageHidden.bulkCreate(
+          [{ messageId, userId: req.user.id }],
+          { ignoreDuplicates: true }
+        );
+      }
+      return res.json({ success: true, data: { messageId, scope: "me" } });
+    }
+
+    if (Number(messageRow.userId) !== Number(req.user.id)) {
+      return res.status(403).json({
+        success: false,
+        message: "Only the sender can delete a message for everyone.",
+      });
+    }
+
+    const deletedAt = new Date();
+    await db.sequelize.transaction(async (transaction) => {
+      await db.ChatAttachment.destroy({ where: { messageId }, transaction });
+      await db.ChatMessage.update(
+        {
+          message: "",
+          mentions: [],
+          messageType: "deleted",
+          deletedForEveryoneAt: deletedAt,
+          deletedById: req.user.id,
+        },
+        { where: { id: messageId }, transaction }
+      );
+    });
+
+    const [activeUserCount, updatedRow] = await Promise.all([
+      db.User.count({ where: { status: "ACTIVE", isActive: true } }),
+      db.ChatMessage.findByPk(messageId, { include: getChatMessageInclude() }),
+    ]);
+
+    triggerRealtimePoll();
+    return res.json({
+      success: true,
+      data: {
+        messageId,
+        scope: "everyone",
+        message: updatedRow ? formatChatMessage(updatedRow, activeUserCount) : null,
+      },
+    });
+  } catch (error) {
+    console.error("Delete chat message failed:", error);
+    return res.status(500).json({ success: false, message: "Unable to delete message." });
   }
 }
 
@@ -578,4 +681,5 @@ module.exports = {
   recordReceipts,
   getMessageStatuses,
   getMessageInfo,
+  deleteMessage,
 };

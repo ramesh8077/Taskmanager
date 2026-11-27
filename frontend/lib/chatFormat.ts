@@ -21,6 +21,7 @@ export type ChatReplyReference = {
   userId: number;
   message: string;
   messageType?: string;
+  deletedForEveryoneAt?: string | null;
   createdAt: string;
   author: { id: number; name: string };
   attachments?: Array<{ id: number; category: string; fileName: string; mimeType: string }>;
@@ -40,6 +41,8 @@ export type ChatMessageItem = {
   messageType?: string;
   message: string;
   mentions: number[];
+  deletedForEveryoneAt?: string | null;
+  deletedById?: number | null;
   createdAt: string;
   author: { id: number; name: string; role?: string };
   attachments?: ChatAttachmentItem[];
@@ -134,11 +137,20 @@ export function sortAndMergeMessages(
   });
 }
 
+export function isMessageDeleted(item: {
+  messageType?: string;
+  deletedForEveryoneAt?: string | null;
+}): boolean {
+  return Boolean(item.deletedForEveryoneAt) || item.messageType === "deleted";
+}
+
 export function describeMessagePreview(item: {
   message?: string;
   messageType?: string;
+  deletedForEveryoneAt?: string | null;
   attachments?: Array<{ category: string; fileName?: string }>;
 }): string {
+  if (isMessageDeleted(item)) return "This message was deleted";
   if (item.message?.trim()) return item.message.trim();
   const attachments = item.attachments || [];
   if (attachments.length > 0) {

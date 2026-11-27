@@ -1795,11 +1795,12 @@ html.dark select option {
   justify-content: center;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: transparent;
-  color: var(--text-secondary);
+  background: var(--surface-card);
+  color: var(--text-primary);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
 }
 
 .dashboard-menu-button {
@@ -1826,11 +1827,12 @@ html.dark select option {
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 0 10px;
-  background: transparent;
-  color: var(--text-secondary);
+  background: var(--surface-card);
+  color: var(--text-primary);
   cursor: pointer;
   font: inherit;
   font-size: 13px;
+  font-weight: 500;
 }
 
 .dashboard-notification-button:hover,

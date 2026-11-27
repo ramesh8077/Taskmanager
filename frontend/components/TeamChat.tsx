@@ -23,6 +23,7 @@ import {
   formatFullTimestamp,
   formatMessageTime,
   getDateKey,
+  isMessageDeleted,
   sortAndMergeMessages,
   type ChatAttachmentItem,
   type ChatMember,
@@ -265,10 +266,13 @@ export default function TeamChat() {
 
   const [infoModalData, setInfoModalData] = useState<MessageInfoPayload | null>(null);
   const [infoLoading, setInfoLoading] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<ChatMessageItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [lightboxImage, setLightboxImage] = useState<ChatAttachmentItem | null>(null);
   const [error, setError] = useState("");
 
   const messageListRef = useRef<HTMLDivElement>(null);
+  const scrollContentRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -283,8 +287,10 @@ export default function TeamChat() {
 
   const latestIdRef = useRef(0);
   const oldestIdRef = useRef(0);
+  const lastScrolledLatestIdRef = useRef(0);
   const syncingRef = useRef(false);
   const shouldAutoScrollRef = useRef(true);
+  const programmaticScrollUntilRef = useRef(0);
   const initialScrollDoneRef = useRef(false);
   const markedSeenIdsRef = useRef<Set<number>>(new Set());
   const searchTokenRef = useRef(0);
@@ -323,23 +329,82 @@ export default function TeamChat() {
     [user]
   );
 
+  const applyDeletedForEveryone = useCallback((deletedIds: Set<number>, deletedAt = new Date().toISOString()) => {
+    if (!deletedIds.size) return;
+    setMessages((prev) =>
+      prev.map((msg) => {
+        const selfDeleted = deletedIds.has(msg.id);
+        const replyDeleted = Boolean(msg.replyTo && deletedIds.has(msg.replyTo.id));
+        if (!selfDeleted && !replyDeleted) return msg;
+        return {
+          ...msg,
+          ...(selfDeleted
+            ? {
+                message: "",
+                mentions: [],
+                messageType: "deleted",
+                attachments: [],
+                deletedForEveryoneAt: msg.deletedForEveryoneAt || deletedAt,
+              }
+            : {}),
+          ...(replyDeleted && msg.replyTo
+            ? {
+                replyTo: {
+                  ...msg.replyTo,
+                  message: "",
+                  messageType: "deleted",
+                  attachments: [],
+                  deletedForEveryoneAt: msg.replyTo.deletedForEveryoneAt || deletedAt,
+                },
+              }
+            : {}),
+        };
+      })
+    );
+  }, []);
+
   const refreshOwnStatuses = useCallback(
     async (currentMessages: ChatMessageItem[]) => {
       if (!user?.id || document.visibilityState !== "visible") return;
-      const ownIds = currentMessages
-        .filter((msg) => msg.userId === user.id)
-        .slice(-40)
-        .map((msg) => msg.id);
-      if (!ownIds.length) return;
+      const checkIds = currentMessages.slice(-60).map((msg) => msg.id);
+      if (!checkIds.length) return;
       try {
-        const res = await API.get<{ data: { statuses: Record<number, ChatReceiptSummary> } }>(
-          `/chat/messages/status?ids=${ownIds.join(",")}`
-        );
+        const res = await API.get<{
+          data: { statuses: Record<number, ChatReceiptSummary>; deletedIds?: number[] };
+        }>(`/chat/messages/status?ids=${checkIds.join(",")}`);
         const statuses = res.data.data.statuses || {};
+        const deletedIds = new Set((res.data.data.deletedIds || []).map((id) => Number(id)));
         setMessages((prev) =>
-          prev.map((msg) =>
-            statuses[msg.id] ? { ...msg, receiptSummary: statuses[msg.id] } : msg
-          )
+          prev.map((msg) => {
+            const selfDeleted = deletedIds.has(msg.id);
+            const replyDeleted = Boolean(msg.replyTo && deletedIds.has(msg.replyTo.id));
+            const nextSummary = statuses[msg.id] || msg.receiptSummary;
+            if (!selfDeleted && !replyDeleted && nextSummary === msg.receiptSummary) return msg;
+            return {
+              ...msg,
+              receiptSummary: nextSummary,
+              ...(selfDeleted
+                ? {
+                    message: "",
+                    mentions: [],
+                    messageType: "deleted",
+                    attachments: [],
+                    deletedForEveryoneAt: msg.deletedForEveryoneAt || new Date().toISOString(),
+                  }
+                : {}),
+              ...(replyDeleted && msg.replyTo
+                ? {
+                    replyTo: {
+                      ...msg.replyTo,
+                      message: "",
+                      messageType: "deleted",
+                      attachments: [],
+                      deletedForEveryoneAt: msg.replyTo.deletedForEveryoneAt || new Date().toISOString(),
+                    },
+                  }
+                : {}),
+            };
+          })
         );
       } catch {
         // Non-fatal fallback poll error.
@@ -446,6 +511,13 @@ export default function TeamChat() {
       );
     };
 
+    const receiveDeletedMessages = (event: Event) => {
+      const deletions = (event as CustomEvent<Array<{ id: number; deletedForEveryoneAt?: string }>>).detail;
+      if (!Array.isArray(deletions) || deletions.length === 0) return;
+      const ids = new Set(deletions.map((d) => Number(d.id)).filter((id) => id > 0));
+      applyDeletedForEveryone(ids);
+    };
+
     const onNotification = (event: Event) => {
       const detail = (event as CustomEvent<{ type?: string }>).detail;
       if (detail?.type === "team_chat" || detail?.type === "chat_mention") {
@@ -474,6 +546,7 @@ export default function TeamChat() {
     schedulePolling(realtimeOpen);
     window.addEventListener("taskmanager:chat-message", receiveMessage);
     window.addEventListener("taskmanager:chat-receipts", receiveReceiptUpdates);
+    window.addEventListener("taskmanager:chat-deleted", receiveDeletedMessages);
     window.addEventListener("taskmanager:notification", onNotification);
     window.addEventListener("taskmanager:realtime-status", onRealtimeStatus);
     window.addEventListener("focus", onVisible);
@@ -483,26 +556,69 @@ export default function TeamChat() {
       if (pollTimer !== undefined) window.clearInterval(pollTimer);
       window.removeEventListener("taskmanager:chat-message", receiveMessage);
       window.removeEventListener("taskmanager:chat-receipts", receiveReceiptUpdates);
+      window.removeEventListener("taskmanager:chat-deleted", receiveDeletedMessages);
       window.removeEventListener("taskmanager:notification", onNotification);
       window.removeEventListener("taskmanager:realtime-status", onRealtimeStatus);
       window.removeEventListener("focus", onVisible);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [markVisibleMessagesAsSeen, refreshOwnStatuses, syncNewMessages]);
+  }, [applyDeletedForEveryone, markVisibleMessagesAsSeen, refreshOwnStatuses, syncNewMessages]);
+
+  const latestMessageId = messages.length ? messages[messages.length - 1].id : 0;
+
+  useEffect(() => {
+    const container = messageListRef.current;
+    const content = scrollContentRef.current;
+    if (!container || !content || typeof ResizeObserver === "undefined") return;
+
+    const observer = new ResizeObserver(() => {
+      if (!shouldAutoScrollRef.current) return;
+      programmaticScrollUntilRef.current = Date.now() + 200;
+      container.scrollTop = container.scrollHeight;
+    });
+    observer.observe(content);
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [messages.length]);
 
   useEffect(() => {
     const container = messageListRef.current;
     if (!container || messages.length === 0) return;
+
+    const snapToBottom = (behavior: ScrollBehavior) => {
+      programmaticScrollUntilRef.current = Date.now() + (behavior === "smooth" ? 650 : 220);
+      if (behavior === "smooth") {
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      } else {
+        container.scrollTop = container.scrollHeight;
+      }
+      setShowScrollBottom(false);
+    };
+
     if (!initialScrollDoneRef.current) {
       initialScrollDoneRef.current = true;
-      container.scrollTop = container.scrollHeight;
       shouldAutoScrollRef.current = true;
-      return;
+      lastScrolledLatestIdRef.current = latestMessageId;
+      snapToBottom("auto");
+      requestAnimationFrame(() => {
+        if (shouldAutoScrollRef.current) snapToBottom("auto");
+      });
+      const settleTimer = window.setTimeout(() => {
+        if (shouldAutoScrollRef.current) snapToBottom("auto");
+      }, 250);
+      return () => window.clearTimeout(settleTimer);
     }
-    if (shouldAutoScrollRef.current) {
-      container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+
+    if (latestMessageId > lastScrolledLatestIdRef.current) {
+      lastScrolledLatestIdRef.current = latestMessageId;
+      const distanceFromBottom =
+        container.scrollHeight - container.scrollTop - container.clientHeight;
+      if (shouldAutoScrollRef.current || distanceFromBottom < 480) {
+        shouldAutoScrollRef.current = true;
+        requestAnimationFrame(() => snapToBottom("smooth"));
+      }
     }
-  }, [messages.length]);
+  }, [latestMessageId, messages.length]);
 
   useEffect(() => {
     const query = searchQuery.trim();
@@ -864,6 +980,28 @@ export default function TeamChat() {
     }
   };
 
+  const handleDeleteMessage = async (scope: "me" | "everyone") => {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    setError("");
+    const targetId = deleteTarget.id;
+    try {
+      await API.delete(`/chat/messages/${targetId}?scope=${scope}`);
+      if (scope === "me") {
+        setMessages((prev) => prev.filter((msg) => msg.id !== targetId));
+      } else {
+        applyDeletedForEveryone(new Set([targetId]));
+      }
+      if (replyTarget?.id === targetId) setReplyTarget(null);
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      const apiMsg = (err as { response?: { data?: { message?: string } } }).response?.data?.message;
+      setError(apiMsg || "Unable to delete message.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const handlePaste = (event: ClipboardEvent<HTMLInputElement>) => {
     const pastedFiles = event.clipboardData?.files;
     if (pastedFiles && pastedFiles.length > 0) {
@@ -1016,10 +1154,15 @@ export default function TeamChat() {
             if (!container) return;
             const distanceFromBottom =
               container.scrollHeight - container.scrollTop - container.clientHeight;
-            shouldAutoScrollRef.current = distanceFromBottom < 140;
-            setShowScrollBottom(distanceFromBottom > 220);
+            setShowScrollBottom(distanceFromBottom > 240);
+            if (distanceFromBottom <= 80) {
+              shouldAutoScrollRef.current = true;
+            } else if (Date.now() >= programmaticScrollUntilRef.current && distanceFromBottom > 260) {
+              shouldAutoScrollRef.current = false;
+            }
           }}
         >
+          <div ref={scrollContentRef} className={styles.chatMessagesInner}>
           {hasMoreBefore && (
             <div className={styles.chatLoadOlderWrap}>
               <button
@@ -1049,8 +1192,9 @@ export default function TeamChat() {
 
               const item = entry.message;
               const isOwn = item.userId === user?.id;
+              const isDeleted = isMessageDeleted(item);
               const isHighlighted = highlightedId === item.id;
-              const attachments = item.attachments || [];
+              const attachments = isDeleted ? [] : item.attachments || [];
               const tickState = item.receiptSummary?.tickState || "sent";
 
               return (
@@ -1069,7 +1213,7 @@ export default function TeamChat() {
                       </span>
                     </div>
 
-                    {item.replyTo && (
+                    {!isDeleted && item.replyTo && (
                       <button
                         type="button"
                         className={styles.chatReplyQuote}
@@ -1081,10 +1225,17 @@ export default function TeamChat() {
                       </button>
                     )}
 
-                    {item.message && (
-                      <p className={styles.chatMessageText}>
-                        {renderMessageText(item.message, members)}
+                    {isDeleted ? (
+                      <p className={styles.chatDeletedText}>
+                        <span aria-hidden="true">⊘</span>
+                        <span>This message was deleted</span>
                       </p>
+                    ) : (
+                      item.message && (
+                        <p className={styles.chatMessageText}>
+                          {renderMessageText(item.message, members)}
+                        </p>
+                      )
                     )}
 
                     {attachments.length > 0 && (
@@ -1104,7 +1255,6 @@ export default function TeamChat() {
                                     src={src}
                                     alt={att.fileName}
                                     className={styles.chatImagePreview}
-                                    loading="lazy"
                                   />
                                 </button>
                                 <div className={styles.chatAttachmentFooter}>
@@ -1187,17 +1337,19 @@ export default function TeamChat() {
 
                     <div className={styles.chatBubbleFooter}>
                       <div className={styles.chatInlineActions}>
-                        <button
-                          type="button"
-                          className={styles.chatActionPill}
-                          onClick={() => {
-                            setReplyTarget(item);
-                            requestAnimationFrame(() => inputRef.current?.focus());
-                          }}
-                        >
-                          Reply
-                        </button>
-                        {isOwn && (
+                        {!isDeleted && (
+                          <button
+                            type="button"
+                            className={styles.chatActionPill}
+                            onClick={() => {
+                              setReplyTarget(item);
+                              requestAnimationFrame(() => inputRef.current?.focus());
+                            }}
+                          >
+                            Reply
+                          </button>
+                        )}
+                        {isOwn && !isDeleted && (
                           <button
                             type="button"
                             className={styles.chatActionPill}
@@ -1206,13 +1358,22 @@ export default function TeamChat() {
                             Info
                           </button>
                         )}
+                        {isOwn && (
+                          <button
+                            type="button"
+                            className={`${styles.chatActionPill} ${styles.chatActionPillDanger}`}
+                            onClick={() => setDeleteTarget(item)}
+                          >
+                            Delete
+                          </button>
+                        )}
                       </div>
 
                       <div className={styles.chatTimeAndTicks}>
                         <time dateTime={item.createdAt} title={formatFullTimestamp(item.createdAt)}>
                           {formatMessageTime(item.createdAt)}
                         </time>
-                        {isOwn && (
+                        {isOwn && !isDeleted && (
                           <button
                             type="button"
                             className={styles.chatTickButton}
@@ -1236,6 +1397,7 @@ export default function TeamChat() {
               );
             })
           )}
+          </div>
         </div>
 
         {showScrollBottom && (
@@ -1246,7 +1408,9 @@ export default function TeamChat() {
               const container = messageListRef.current;
               if (container) {
                 shouldAutoScrollRef.current = true;
+                programmaticScrollUntilRef.current = Date.now() + 650;
                 container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+                setShowScrollBottom(false);
               }
             }}
           >
@@ -1618,6 +1782,55 @@ export default function TeamChat() {
                 onClick={() => setLightboxImage(null)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div
+          className={styles.chatModalBackdrop}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Delete message"
+          onClick={() => {
+            if (!deleting) setDeleteTarget(null);
+          }}
+        >
+          <div className={styles.chatDeleteModal} onClick={(event) => event.stopPropagation()}>
+            <h2>Delete message?</h2>
+            <p>
+              {isMessageDeleted(deleteTarget)
+                ? "Remove this deleted message notice from your chat view."
+                : "Choose whether to remove this message only for you or delete it for everyone in Team Chat."}
+            </p>
+            <div className={styles.chatDeleteActions}>
+              {!isMessageDeleted(deleteTarget) && deleteTarget.userId === user?.id && (
+                <button
+                  type="button"
+                  className={`${styles.chatDeleteOptionBtn} ${styles.isDanger}`}
+                  onClick={() => void handleDeleteMessage("everyone")}
+                  disabled={deleting}
+                >
+                  {deleting ? "Deleting..." : "Delete for everyone"}
+                </button>
+              )}
+              <button
+                type="button"
+                className={styles.chatDeleteOptionBtn}
+                onClick={() => void handleDeleteMessage("me")}
+                disabled={deleting}
+              >
+                {deleting ? "Deleting..." : "Delete for me"}
+              </button>
+              <button
+                type="button"
+                className={styles.chatDeleteOptionBtn}
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
+                Cancel
               </button>
             </div>
           </div>

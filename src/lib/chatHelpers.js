@@ -144,7 +144,7 @@ function getChatMessageInclude() {
     {
       model: db.ChatMessage,
       as: "replyTo",
-      attributes: ["id", "userId", "message", "messageType", "createdAt"],
+      attributes: ["id", "userId", "message", "messageType", "deletedForEveryoneAt", "createdAt"],
       include: [
         { model: db.User, as: "author", attributes: ["id", "name"] },
         {
@@ -169,20 +169,29 @@ function formatChatMessage(row, activeUserCount) {
   const receiptSummary = buildReceiptSummary(plain.userId, receipts, activeUserCount);
   delete plain.receipts;
 
-  const attachments = Array.isArray(plain.attachments)
-    ? plain.attachments.slice().sort((a, b) => Number(a.id) - Number(b.id))
-    : [];
+  const isDeletedForEveryone = Boolean(plain.deletedForEveryoneAt) || plain.messageType === "deleted";
+  const attachments = isDeletedForEveryone
+    ? []
+    : Array.isArray(plain.attachments)
+      ? plain.attachments.slice().sort((a, b) => Number(a.id) - Number(b.id))
+      : [];
 
   let replyTo = null;
   if (plain.replyTo && plain.replyTo.id) {
+    const replyDeleted = Boolean(plain.replyTo.deletedForEveryoneAt) || plain.replyTo.messageType === "deleted";
     replyTo = {
       id: plain.replyTo.id,
       userId: plain.replyTo.userId,
-      message: plain.replyTo.message || "",
-      messageType: plain.replyTo.messageType || "text",
+      message: replyDeleted ? "" : plain.replyTo.message || "",
+      messageType: replyDeleted ? "deleted" : plain.replyTo.messageType || "text",
+      deletedForEveryoneAt: plain.replyTo.deletedForEveryoneAt || null,
       createdAt: plain.replyTo.createdAt,
       author: plain.replyTo.author || { id: plain.replyTo.userId, name: "Team member" },
-      attachments: Array.isArray(plain.replyTo.attachments) ? plain.replyTo.attachments : [],
+      attachments: replyDeleted
+        ? []
+        : Array.isArray(plain.replyTo.attachments)
+          ? plain.replyTo.attachments
+          : [],
     };
   }
 
@@ -190,9 +199,11 @@ function formatChatMessage(row, activeUserCount) {
     id: plain.id,
     userId: plain.userId,
     replyToId: plain.replyToId || null,
-    messageType: plain.messageType || "text",
-    message: plain.message || "",
-    mentions: Array.isArray(plain.mentions) ? plain.mentions : [],
+    messageType: isDeletedForEveryone ? "deleted" : plain.messageType || "text",
+    message: isDeletedForEveryone ? "" : plain.message || "",
+    mentions: isDeletedForEveryone ? [] : Array.isArray(plain.mentions) ? plain.mentions : [],
+    deletedForEveryoneAt: plain.deletedForEveryoneAt || null,
+    deletedById: plain.deletedById || null,
     createdAt: plain.createdAt,
     updatedAt: plain.updatedAt,
     author: plain.author || { id: plain.userId, name: "Team member" },

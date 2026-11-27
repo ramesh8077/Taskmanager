@@ -47,6 +47,8 @@ router.get("/members", verifyToken, controller.listMentionableMembers);
 router.get("/messages", verifyToken, controller.listMessages);
 router.get("/messages/status", verifyToken, controller.getMessageStatuses);
 router.get("/messages/:id/info", verifyToken, controller.getMessageInfo);
+router.delete("/messages/:id", verifyToken, controller.deleteMessage);
+router.post("/messages/:id/delete", verifyToken, controller.deleteMessage);
 router.post("/messages", verifyToken, handleChatUpload, controller.createMessage);
 router.post("/receipts", verifyToken, controller.recordReceipts);
 router.get("/attachments/:attachmentId", verifyToken, controller.getAttachment);
