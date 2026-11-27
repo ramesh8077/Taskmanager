@@ -9,12 +9,31 @@ const DeadlineExtensionRequest = db.DeadlineExtensionRequest;
 const DeadlineHistory = db.DeadlineHistory;
 const TaskHistory = db.TaskHistory;
 const ActivityLog = db.ActivityLog;
+const Notification = db.Notification;
+
+async function resolveReportingRecipients(actor, transaction) {
+  if (actor?.reportsToId) {
+    const directManager = await User.findOne({
+      where: { id: actor.reportsToId, status: "ACTIVE", isActive: true },
+      attributes: ["id", "name", "position"],
+      transaction,
+    });
+    if (directManager) return [directManager];
+  }
+  return User.findAll({
+    where: {
+      position: "MANAGER",
+      status: "ACTIVE",
+      isActive: true,
+      id: { [Op.ne]: actor.id },
+    },
+    attributes: ["id", "name", "position"],
+    transaction,
+  });
+}
 
 async function createRequest(req, res) {
   try {
-    if (req.user.position === "INTERN") {
-      return res.status(403).json({ success: false, message: "Interns cannot request deadline extensions." });
-    }
     const { id: taskId } = req.validatedParams || req.params;
     const { requestedDeadline, reason } = req.body;
     const task = await Task.findOne({
@@ -33,7 +52,7 @@ async function createRequest(req, res) {
       return res.status(400).json({ success: false, message: "The requested deadline must be in the future." });
     }
 
-    const request = await db.sequelize.transaction(async (transaction) => {
+    const result = await db.sequelize.transaction(async (transaction) => {
       const currentTask = await Task.findOne({
         where: { id: taskId, assignedTo: req.user.id },
         transaction,
@@ -55,30 +74,54 @@ async function createRequest(req, res) {
         lock: transaction.LOCK.UPDATE,
       });
       if (pending) return { error: "PENDING" };
-      return DeadlineExtensionRequest.create({
+
+      const created = await DeadlineExtensionRequest.create({
         taskId,
         requestedById: req.user.id,
         currentDeadline: currentTask.dueDate,
         requestedDeadline,
         reason,
       }, { transaction });
+
+      const recipients = await resolveReportingRecipients(req.user, transaction);
+      if (recipients.length) {
+        await Notification.bulkCreate(
+          recipients.map((recipient) => ({
+            userId: recipient.id,
+            type: "deadline_extension_request",
+            title: "Deadline extension request",
+            message: `${req.user.name} requested to extend Task #${currentTask.id} (“${currentTask.title}”) deadline to ${requestedDeadline}.`,
+            link: "/dashboard/deadline-requests",
+            dedupeKey: `deadline-request:${created.id}:${recipient.id}`,
+          })),
+          { transaction, ignoreDuplicates: true },
+        );
+      }
+
+      return { request: created, reportingTo: recipients[0] || null };
     });
-    if (request === null) {
+    if (result === null) {
       return res.status(404).json({ success: false, message: "Assigned task not found." });
     }
-    if (request?.error === "COMPLETED") {
+    if (result?.error === "COMPLETED") {
       return res.status(409).json({ success: false, message: "Completed tasks cannot request a deadline extension." });
     }
-    if (request?.error === "DEADLINE_NOT_EXTENDED") {
+    if (result?.error === "DEADLINE_NOT_EXTENDED") {
       return res.status(400).json({ success: false, message: "The requested deadline must be later than the current deadline." });
     }
-    if (request?.error === "REQUESTED_DATE_PASSED") {
+    if (result?.error === "REQUESTED_DATE_PASSED") {
       return res.status(400).json({ success: false, message: "The requested deadline must be in the future." });
     }
-    if (request?.error === "PENDING") {
+    if (result?.error === "PENDING") {
       return res.status(409).json({ success: false, message: "This task already has a pending deadline request." });
     }
-    return res.status(201).json({ success: true, data: { request } });
+    return res.status(201).json({
+      success: true,
+      message: result.reportingTo
+        ? `Deadline extension request sent to ${result.reportingTo.name}.`
+        : "Deadline extension request submitted.",
+      data: { request: result.request, reportingTo: result.reportingTo },
+    });
   } catch (error) {
     console.error("Create Deadline Extension Request Error:", error);
     return res.status(500).json({ success: false, message: "Unable to submit the deadline request." });
@@ -130,24 +173,33 @@ async function reviewRequest(req, res) {
       const request = await DeadlineExtensionRequest.findByPk(requestId, {
         transaction,
         lock: transaction.LOCK.UPDATE,
-        include: [{
-          model: Task,
-          as: "task",
-          include: [{
+        include: [
+          {
+            model: Task,
+            as: "task",
+            include: [{
+              model: User,
+              as: "assignee",
+              attributes: ["id", "name", "department", "position"],
+              required: false,
+            }],
+          },
+          {
             model: User,
-            as: "assignee",
-            attributes: ["id", "name", "department", "position"],
+            as: "requester",
+            attributes: ["id", "name", "reportsToId"],
             required: false,
-          }],
-        }],
+          },
+        ],
       });
       if (!request) return { error: "NOT_FOUND" };
       const visibleAssigneeIds = await visibleUserIds(User, req.user);
+      const isDirectReportingManager = Number(request.requester?.reportsToId) === Number(req.user.id);
       if (
         !request.task ||
-        !visibleAssigneeIds.includes(Number(request.task.assignedTo)) ||
+        (!isDirectReportingManager && !visibleAssigneeIds.includes(Number(request.task.assignedTo))) ||
         !canManageDeadlines(req.user) ||
-        !canEditDeadline(req.user, request.task)
+        (!isDirectReportingManager && !canEditDeadline(req.user, request.task))
       ) return { error: "FORBIDDEN" };
       if (request.status !== "PENDING") return { error: "ALREADY_REVIEWED" };
       if (request.task.dueDate !== request.currentDeadline) return { error: "DEADLINE_CHANGED" };
@@ -193,6 +245,14 @@ async function reviewRequest(req, res) {
         }, { transaction });
       }
       await request.save({ transaction });
+      await Notification.create({
+        userId: request.requestedById,
+        type: "deadline_extension_reviewed",
+        title: decision === "APPROVED" ? "Deadline request approved" : "Deadline request rejected",
+        message: `${req.user.name} ${decision === "APPROVED" ? "approved" : "rejected"} your deadline request for Task #${request.task.id} (“${request.task.title}”).`,
+        link: "/dashboard",
+        dedupeKey: `deadline-request-reviewed:${request.id}:${decision}`,
+      }, { transaction });
       return { request };
     });
 

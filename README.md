@@ -136,14 +136,14 @@ Run `npm run db:migrate` to add storage for meeting transcripts and AI minutes.
 
 ### AI meeting minutes
 
-Set `OPENAI_API_KEY` in the backend environment (and Vercel backend variables
-when deployed). `OPENAI_MOM_MODEL` is optional; it defaults to `gpt-4o-mini`.
+Set `GEMINI_API_KEY` in the backend environment (and Vercel backend variables
+when deployed). `GEMINI_MOM_MODEL` is optional; it defaults to `gemini-3-flash-preview`.
 After a meeting ends, the host can upload an audio recording up to 25 MB or
-paste its transcript. The backend transcribes uploaded audio and generates
-structured minutes with a summary, discussion topics, decisions, action items,
-risks, and open questions. The app does not record meetings automatically, so
-provide a recording or transcript to create the MOM. Keep the API key server-side
-and never add a `NEXT_PUBLIC_` prefix.
+paste its transcript. The backend uses Gemini to transcribe uploaded audio and
+generate structured minutes with a summary, discussion topics, decisions, action
+items, risks, and open questions. The app does not record meetings automatically,
+so provide a recording or transcript to create the MOM. Keep the API key
+server-side and never add a `NEXT_PUBLIC_` prefix.
 
 After changing Vercel environment variables, redeploy the backend and frontend.
 The `GOOGLE_CLIENT_ID`,

@@ -2,7 +2,9 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import toast from "react-hot-toast";
 import API from "@/lib/axios";
+import { useAuth } from "@/context/AuthContext";
 
 interface Member {
   id: number;
@@ -12,6 +14,7 @@ interface Member {
   position: string;
   employeeId: string;
   isActive: boolean;
+  canExtendDeadline?: boolean;
   status: string;
   joinedAt: string;
   lastActivityAt: string | null;
@@ -39,11 +42,34 @@ function dateLabel(value: string | null) {
 }
 
 export default function DashboardDirectory({ mode }: { mode: "teams" | "members" }) {
+  const { user } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [togglingId, setTogglingId] = useState<number | null>(null);
+
+  async function toggleDeadlinePermission(member: Member) {
+    setTogglingId(member.id);
+    const nextValue = !member.canExtendDeadline;
+    try {
+      await API.patch(`/users/members/${member.id}`, { canExtendDeadline: nextValue });
+      setMembers((current) =>
+        current.map((entry) => (entry.id === member.id ? { ...entry, canExtendDeadline: nextValue } : entry)),
+      );
+      toast.success(
+        nextValue
+          ? `Deadline extension permission granted to ${member.name}.`
+          : `Deadline extension permission revoked for ${member.name}.`,
+      );
+    } catch (requestError) {
+      const message = (requestError as { response?: { data?: { message?: string } } }).response?.data?.message;
+      toast.error(message || "Could not update deadline permission.");
+    } finally {
+      setTogglingId(null);
+    }
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -118,17 +144,39 @@ export default function DashboardDirectory({ mode }: { mode: "teams" | "members"
         </div>
       ) : (
         <div className="overflow-x-auto rounded-xl border t-border-subtle t-bg-card">
-          <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="border-b t-border-subtle text-xs uppercase t-text-muted"><tr>{["Member", "Employee ID", "Department", "Position", "Reports to", "Status", "Last activity", ""].map((label) => <th className="px-4 py-3 font-semibold" key={label || "open"}>{label}</th>)}</tr></thead>
+          <table className="w-full min-w-[980px] text-left text-sm">
+            <thead className="border-b t-border-subtle text-xs uppercase t-text-muted"><tr>{["Member", "Employee ID", "Department", "Position", "Reports to", "Deadline permission", "Status", "Last activity", ""].map((label) => <th className="px-4 py-3 font-semibold" key={label || "open"}>{label}</th>)}</tr></thead>
             <tbody className="divide-y t-border-subtle">
-              {filteredMembers.map((member) => <tr key={member.id} className="t-text-primary">
-                <td className="px-4 py-4"><span className="block font-semibold">{member.name}</span><span className="text-xs t-text-muted">{member.email}</span></td>
-                <td className="px-4 py-4">{member.employeeId}</td><td className="px-4 py-4">{member.department}</td><td className="px-4 py-4">{member.position.replaceAll("_", " ")}</td>
-                <td className="px-4 py-4">{member.reportsTo?.name || "—"}</td>
-                <td className="px-4 py-4"><span className={member.isActive && member.status === "ACTIVE" ? "text-emerald-500" : "text-amber-500"}>{member.isActive && member.status === "ACTIVE" ? "Active" : "Inactive"}</span></td>
-                <td className="px-4 py-4">{dateLabel(member.lastActivityAt)}</td><td className="px-4 py-4"><Link className="font-semibold text-indigo-500 hover:underline" href={`/dashboard/members/${member.id}`}>View</Link></td>
-              </tr>)}
-              {!filteredMembers.length && <tr><td className="px-4 py-8 text-center t-text-muted" colSpan={8}>No members match this search.</td></tr>}
+              {filteredMembers.map((member) => {
+                const isSelf = Number(user?.id) === Number(member.id);
+                const isMemberManager = member.position === "MANAGER";
+                return <tr key={member.id} className="t-text-primary">
+                  <td className="px-4 py-4"><span className="block font-semibold">{member.name}</span><span className="text-xs t-text-muted">{member.email}</span></td>
+                  <td className="px-4 py-4">{member.employeeId}</td><td className="px-4 py-4">{member.department}</td><td className="px-4 py-4">{member.position.replaceAll("_", " ")}</td>
+                  <td className="px-4 py-4">{member.reportsTo?.name || "—"}</td>
+                  <td className="px-4 py-4">
+                    {isMemberManager ? (
+                      <span className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-semibold text-emerald-600 dark:text-emerald-300">Always allowed</span>
+                    ) : user?.position === "MANAGER" && !isSelf ? (
+                      <button
+                        type="button"
+                        disabled={togglingId === member.id}
+                        aria-pressed={Boolean(member.canExtendDeadline)}
+                        onClick={() => void toggleDeadlinePermission(member)}
+                        className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${member.canExtendDeadline ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-300 hover:bg-emerald-500/20" : "t-border-subtle t-text-secondary hover:bg-slate-500/10"}`}
+                      >
+                        <span>{member.canExtendDeadline ? "✓ Allowed" : "Not allowed"}</span>
+                        <span className="opacity-70">· {togglingId === member.id ? "Saving…" : member.canExtendDeadline ? "Revoke" : "Grant"}</span>
+                      </button>
+                    ) : (
+                      <span className="text-xs t-text-muted">{member.canExtendDeadline ? "Allowed" : "Not allowed"}</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-4"><span className={member.isActive && member.status === "ACTIVE" ? "text-emerald-500" : "text-amber-500"}>{member.isActive && member.status === "ACTIVE" ? "Active" : "Inactive"}</span></td>
+                  <td className="px-4 py-4">{dateLabel(member.lastActivityAt)}</td><td className="px-4 py-4"><Link className="font-semibold text-indigo-500 hover:underline" href={`/dashboard/members/${member.id}`}>View</Link></td>
+                </tr>;
+              })}
+              {!filteredMembers.length && <tr><td className="px-4 py-8 text-center t-text-muted" colSpan={9}>No members match this search.</td></tr>}
             </tbody>
           </table>
         </div>

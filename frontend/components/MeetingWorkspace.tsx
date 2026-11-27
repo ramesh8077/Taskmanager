@@ -6,6 +6,7 @@ import toast from "react-hot-toast";
 import API from "@/lib/axios";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
+import { formatMinutesMarkdown, splitParagraphs, type MeetingMinutes } from "@/lib/momFormat";
 import styles from "./Meetings.module.css";
 
 interface Person {
@@ -20,16 +21,6 @@ interface Participant {
   userId: number;
   participantRole: "HOST" | "PARTICIPANT";
   user: Person;
-}
-
-interface MeetingMinutes {
-  summary: string;
-  discussionTopics: string[];
-  decisions: string[];
-  actionItems: Array<{ task: string; owner: string; dueDate: string; priority: string }>;
-  risksAndBlockers: string[];
-  openQuestions: string[];
-  nextMeeting: string;
 }
 
 interface Meeting {
@@ -130,16 +121,7 @@ function MeetingHistoryRow({ meeting, now, isHost, onOpenMeeting }: {
 
   async function copyMinutes() {
     if (!minutes) return;
-    const text = [
-      `Minutes of Meeting: ${meeting.title}`,
-      minutes.summary,
-      ...minutes.discussionTopics.map((item) => `Discussion: ${item}`),
-      ...minutes.decisions.map((item) => `Decision: ${item}`),
-      ...minutes.actionItems.map((item) => `Action: ${item.task} — ${item.owner}; due ${item.dueDate}; ${item.priority}`),
-      ...minutes.risksAndBlockers.map((item) => `Risk or blocker: ${item}`),
-      ...minutes.openQuestions.map((item) => `Open question: ${item}`),
-      minutes.nextMeeting ? `Next meeting: ${minutes.nextMeeting}` : "",
-    ].filter(Boolean).join("\n\n");
+    const text = formatMinutesMarkdown(meeting, minutes);
     try {
       await navigator.clipboard.writeText(text);
       toast.success("MOM copied.");
@@ -172,13 +154,41 @@ function MeetingHistoryRow({ meeting, now, isHost, onOpenMeeting }: {
     </tr>
     {expanded && <tr className={styles.momExpandedRow}><td colSpan={9}>
       {loadingMinutes ? <p>Loading meeting minutes…</p> : minutesError ? <p role="alert">{minutesError}</p> : minutes ? <div className={styles.momTableContent}>
-        <div className={styles.momSummaryBlock}><div><strong>Minutes of Meeting</strong><p>{minutes.summary}</p></div><button type="button" className={styles.tableAction} onClick={() => void copyMinutes()}>Copy MOM</button></div>
-        {minutes.discussionTopics.length > 0 && <div><strong>Discussion topics</strong><ul>{minutes.discussionTopics.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
+        <div className={styles.momSummaryBlock}>
+          <div>
+            <strong>Executive Summary</strong>
+            {splitParagraphs(minutes.summary).map((paragraph, index) => (
+              <p key={`table-summary-${index}`}>{paragraph}</p>
+            ))}
+          </div>
+          <button type="button" className={styles.tableAction} onClick={() => void copyMinutes()}>Copy MOM</button>
+        </div>
+        {(minutes.detailedDiscussion?.length || 0) > 0 ? (
+          <div className={styles.momDetailedBlock}>
+            <strong>Detailed Discussion</strong>
+            <div className={styles.minutesTopicsList}>
+              {minutes.detailedDiscussion!.map((topic, index) => (
+                <article key={`${index}-${topic.heading}`} className={styles.minutesTopicCard}>
+                  <h5>{index + 1}. {topic.heading}</h5>
+                  {splitParagraphs(topic.summary).map((paragraph, pIndex) => (
+                    <p key={`table-topic-${index}-p-${pIndex}`}>{paragraph}</p>
+                  ))}
+                  {topic.keyPoints?.length > 0 && (
+                    <ul>{topic.keyPoints.map((point, kIndex) => <li key={`table-topic-${index}-k-${kIndex}`}>{point}</li>)}</ul>
+                  )}
+                </article>
+              ))}
+            </div>
+          </div>
+        ) : minutes.discussionTopics.length > 0 ? (
+          <div><strong>Discussion Topics</strong><ul>{minutes.discussionTopics.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>
+        ) : null}
         {minutes.decisions.length > 0 && <div><strong>Decisions</strong><ul>{minutes.decisions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
-        {minutes.actionItems.length > 0 && <div><strong>Action items</strong><ul>{minutes.actionItems.map((item, index) => <li key={`${index}-${item.task}`}>{item.task} · {item.owner} · Due {item.dueDate} · {item.priority}</li>)}</ul></div>}
-        {minutes.risksAndBlockers.length > 0 && <div><strong>Risks and blockers</strong><ul>{minutes.risksAndBlockers.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
-        {minutes.openQuestions.length > 0 && <div><strong>Open questions</strong><ul>{minutes.openQuestions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
-        {minutes.nextMeeting && <div><strong>Next meeting</strong><p>{minutes.nextMeeting}</p></div>}
+        {minutes.actionItems.length > 0 && <div><strong>Action Items</strong><ul>{minutes.actionItems.map((item, index) => <li key={`${index}-${item.task}`}>{item.task} · {item.owner} · Due {item.dueDate} · {item.priority}</li>)}</ul></div>}
+        {minutes.risksAndBlockers.length > 0 && <div><strong>Risks &amp; Blockers</strong><ul>{minutes.risksAndBlockers.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
+        {minutes.openQuestions.length > 0 && <div><strong>Open Questions</strong><ul>{minutes.openQuestions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
+        {(minutes.keyTakeaways?.length || 0) > 0 && <div><strong>Key Takeaways</strong><ul>{minutes.keyTakeaways!.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></div>}
+        {minutes.nextMeeting && <div><strong>Next Meeting</strong><p>{minutes.nextMeeting}</p></div>}
       </div> : null}
     </td></tr>}
   </>;
@@ -198,6 +208,7 @@ export default function MeetingWorkspace() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showForm, setShowForm] = useState(false);
+  const [formError, setFormError] = useState("");
   const [query, setQuery] = useState("");
   const [meetingView, setMeetingView] = useState<"all" | "upcoming" | "history">("all");
   const [meetingSearch, setMeetingSearch] = useState("");
@@ -259,16 +270,39 @@ export default function MeetingWorkspace() {
       ? upcoming
       : history;
 
+  const closeForm = useCallback(() => {
+    if (saving) return;
+    setShowForm(false);
+    setFormError("");
+  }, [saving]);
+
+  function openForm() {
+    setFormError("");
+    setShowForm(true);
+  }
+
+  useEffect(() => {
+    if (!showForm) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeForm();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showForm, closeForm]);
+
   async function createMeeting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
     const localStart = String(form.get("scheduledAt") || "");
     if (!localStart) {
-      toast.error("Meeting ka date aur time select karein.");
+      const message = "Meeting ka date aur time select karein.";
+      setFormError(message);
+      toast.error(message);
       return;
     }
 
+    setFormError("");
     setSaving(true);
     try {
       await API.post("/meetings", {
@@ -281,11 +315,14 @@ export default function MeetingWorkspace() {
       toast.success("Meeting schedule ho gayi.");
       setSelectedPeople([]);
       setQuery("");
+      setFormError("");
       setShowForm(false);
       formElement.reset();
       await loadData();
     } catch (error) {
-      toast.error(apiMessage(error, "Meeting schedule nahi ho paayi."));
+      const message = apiMessage(error, "Meeting schedule nahi ho paayi.");
+      setFormError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -306,8 +343,8 @@ export default function MeetingWorkspace() {
             <h1>Meetings</h1>
             <p>Manage your upcoming calls, invite teammates, and revisit past meetings.</p>
           </div>
-          <button type="button" className={styles.primaryButton} onClick={() => setShowForm((value) => !value)} aria-expanded={showForm} aria-controls="schedule-meeting-form">
-            {showForm ? "Close form" : "+ Schedule meeting"}
+          <button type="button" className={styles.primaryButton} onClick={openForm} aria-haspopup="dialog" aria-expanded={showForm} aria-controls="schedule-meeting-form">
+            + Schedule meeting
           </button>
         </div>
 
@@ -319,84 +356,104 @@ export default function MeetingWorkspace() {
         </div>}
 
         {showForm && (
-          <form id="schedule-meeting-form" className={styles.form} onSubmit={createMeeting}>
-            <div className={styles.formHeader}>
-              <div>
-                <h2>Schedule a meeting</h2>
-                <p>The host starts the room. Invited teammates can join after it goes live.</p>
-              </div>
-            </div>
-            <div className={styles.formGrid}>
-              <label className={styles.field}>
-                <span>Meeting title</span>
-                <input name="title" required minLength={3} maxLength={160} placeholder="Weekly project review" />
-              </label>
-              <label className={styles.field}>
-                <span>Date and time</span>
-                <input name="scheduledAt" type="datetime-local" min={localNow || undefined} required />
-              </label>
-              <label className={styles.field}>
-                <span>Duration</span>
-                <select name="durationMinutes" defaultValue="30">
-                  {[15, 30, 45, 60, 90, 120, 180, 360].map((minutes) => (
-                    <option key={minutes} value={minutes}>{minutes} minutes</option>
-                  ))}
-                </select>
-              </label>
-              <label className={`${styles.field} ${styles.agendaField}`}>
-                <span>Agenda</span>
-                <textarea name="agenda" rows={3} maxLength={10000} placeholder="Topics and preparation notes" />
-              </label>
-            </div>
-
-            <div className={styles.peopleSection}>
-              <div className={styles.peopleHeader}>
-                <div>
-                  <h3>Invite teammates</h3>
-                  <p>Invite any active teammate in the organization.</p>
+          <div
+            className={styles.modalBackdrop}
+            role="presentation"
+            onMouseDown={(event) => {
+              if (event.target === event.currentTarget) closeForm();
+            }}
+          >
+            <section
+              id="schedule-meeting-form"
+              className={styles.modalDialog}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="schedule-meeting-dialog-title"
+            >
+              <form className={styles.modalForm} onSubmit={createMeeting}>
+                <div className={styles.modalHeading}>
+                  <div>
+                    <h2 id="schedule-meeting-dialog-title">Schedule a meeting</h2>
+                    <p>The host starts the room. Invited teammates can join after it goes live.</p>
+                  </div>
+                  <button type="button" className={styles.modalClose} aria-label="Close dialog" disabled={saving} onClick={closeForm}>×</button>
                 </div>
-                <span className={styles.selectedCount}>{selectedPeople.length} selected</span>
-              </div>
-              <input
-                className={styles.search}
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search people or department"
-                aria-label="Search teammates"
-              />
-              {selectedPeople.length > 0 && <div className={styles.selectedPeople} aria-label="Selected invitees">
-                {selectedPeople.map((id) => {
-                  const person = people.find((entry) => entry.id === id);
-                  if (!person) return null;
-                  return <button type="button" key={id} onClick={() => togglePerson(id)} aria-label={`Remove ${person.name}`}>
-                    {person.name}<span aria-hidden="true">×</span>
-                  </button>;
-                })}
-              </div>}
-              <div className={styles.peopleList}>
-                {filteredPeople.length ? filteredPeople.map((person) => (
-                  <label key={person.id} className={styles.personOption}>
-                    <input
-                      type="checkbox"
-                      checked={selectedPeople.includes(person.id)}
-                      onChange={() => togglePerson(person.id)}
-                    />
-                    <span className={styles.personAvatar}>{person.name.slice(0, 1).toUpperCase()}</span>
-                    <span className={styles.personInfo}>
-                      <strong>{person.name}</strong>
-                      <small>{person.department} · {person.position.toLowerCase().replaceAll("_", " ")}</small>
-                    </span>
+
+                {formError && <p className={styles.modalError} role="alert">{formError}</p>}
+
+                <div className={styles.formGrid}>
+                  <label className={styles.field}>
+                    <span>Meeting title</span>
+                    <input name="title" required minLength={3} maxLength={160} placeholder="Weekly project review" autoFocus />
                   </label>
-                )) : <p className={styles.noPeople}>No teammates found.</p>}
-              </div>
-            </div>
-            <div className={styles.formActions}>
-              <button type="button" className={styles.secondaryButton} onClick={() => setShowForm(false)}>Cancel</button>
-              <button type="submit" className={styles.primaryButton} disabled={saving}>
-                {saving ? "Scheduling…" : "Schedule meeting"}
-              </button>
-            </div>
-          </form>
+                  <label className={styles.field}>
+                    <span>Date and time</span>
+                    <input name="scheduledAt" type="datetime-local" min={localNow || undefined} required />
+                  </label>
+                  <label className={styles.field}>
+                    <span>Duration</span>
+                    <select name="durationMinutes" defaultValue="30">
+                      {[15, 30, 45, 60, 90, 120, 180, 360].map((minutes) => (
+                        <option key={minutes} value={minutes}>{minutes} minutes</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className={`${styles.field} ${styles.agendaField}`}>
+                    <span>Agenda</span>
+                    <textarea name="agenda" rows={3} maxLength={10000} placeholder="Topics and preparation notes" />
+                  </label>
+                </div>
+
+                <div className={styles.peopleSection}>
+                  <div className={styles.peopleHeader}>
+                    <div>
+                      <h3>Invite teammates</h3>
+                      <p>Invite any active teammate in the organization.</p>
+                    </div>
+                    <span className={styles.selectedCount}>{selectedPeople.length} selected</span>
+                  </div>
+                  <input
+                    className={styles.search}
+                    value={query}
+                    onChange={(event) => setQuery(event.target.value)}
+                    placeholder="Search people or department"
+                    aria-label="Search teammates"
+                  />
+                  {selectedPeople.length > 0 && <div className={styles.selectedPeople} aria-label="Selected invitees">
+                    {selectedPeople.map((id) => {
+                      const person = people.find((entry) => entry.id === id);
+                      if (!person) return null;
+                      return <button type="button" key={id} onClick={() => togglePerson(id)} aria-label={`Remove ${person.name}`}>
+                        {person.name}<span aria-hidden="true">×</span>
+                      </button>;
+                    })}
+                  </div>}
+                  <div className={styles.peopleList}>
+                    {filteredPeople.length ? filteredPeople.map((person) => (
+                      <label key={person.id} className={styles.personOption}>
+                        <input
+                          type="checkbox"
+                          checked={selectedPeople.includes(person.id)}
+                          onChange={() => togglePerson(person.id)}
+                        />
+                        <span className={styles.personAvatar}>{person.name.slice(0, 1).toUpperCase()}</span>
+                        <span className={styles.personInfo}>
+                          <strong>{person.name}</strong>
+                          <small>{person.department} · {person.position.toLowerCase().replaceAll("_", " ")}</small>
+                        </span>
+                      </label>
+                    )) : <p className={styles.noPeople}>No teammates found.</p>}
+                  </div>
+                </div>
+                <div className={styles.formActions}>
+                  <button type="button" className={styles.secondaryButton} disabled={saving} onClick={closeForm}>Cancel</button>
+                  <button type="submit" className={styles.primaryButton} disabled={saving}>
+                    {saving ? "Scheduling…" : "Schedule meeting"}
+                  </button>
+                </div>
+              </form>
+            </section>
+          </div>
         )}
 
         {loading ? <div className={styles.emptyState}>Loading your meetings…</div> : <>
@@ -467,7 +524,7 @@ export default function MeetingWorkspace() {
                 <span className={styles.emptyIcon} aria-hidden="true">{meetingSearch ? "⌕" : "▣"}</span>
                 <strong>{meetingSearch ? "No matching meetings" : meetingView === "upcoming" ? "Nothing scheduled yet" : meetingView === "history" ? "No past meetings yet" : "No meetings yet"}</strong>
                 <span>{meetingSearch ? "Try another title, agenda, or host name." : meetingView === "upcoming" ? "Schedule a meeting and invite your teammates." : "Your meetings will show up here."}</span>
-                {!meetingSearch && meetingView === "upcoming" && <button type="button" className={styles.emptyAction} onClick={() => setShowForm(true)}>Schedule your first meeting</button>}
+                {!meetingSearch && meetingView === "upcoming" && <button type="button" className={styles.emptyAction} onClick={openForm}>Schedule your first meeting</button>}
               </div>
             )}
           </section>

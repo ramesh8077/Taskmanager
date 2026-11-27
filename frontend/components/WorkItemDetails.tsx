@@ -147,9 +147,9 @@ export default function WorkItemDetails({ item, assignableUsers, onClose }: Prop
   const canAssign = item.type === "ticket"
     ? canAssignTickets
     : can(user, "task:assign") && (canManageTeamItem || item.createdBy?.id === user?.id);
-  const canEditDeadline = !isIntern && canManageTeamItem &&
+  const canEditPriority = !isIntern && canManageTeamItem &&
     ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(user?.position || "");
-  const canEditPriority = canEditDeadline;
+  const canEditDeadline = canEditPriority || (Boolean(user?.canExtendDeadline) && assignedToMe);
   const canEditDescription = assignedToMe || canManageTeamItem || item.createdBy?.id === user?.id;
   const canReopenTicket = item.type === "ticket" && (isManager || item.createdBy?.id === user?.id) && ["Resolved", "Closed"].includes(item.rawStatus);
   const canChangeStatus = isIntern

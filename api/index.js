@@ -32,6 +32,7 @@ const reportRoutes = require("../src/routes/reportRoutes");
 const settingsRoutes = require("../src/routes/settingsRoutes");
 const meetingRoutes = require("../src/routes/meetingRoutes");
 const chatRoutes = require("../src/routes/chatRoutes");
+const aiRoutes = require("../src/routes/aiRoutes");
 
 // ─── Import Database ────────────────────────────────────────────────────────
 
@@ -97,6 +98,7 @@ function ensureDB() {
           "202611190001-google-meet-links.js",
           "202611170003-ticket-attachment-blobs.js",
           "202611240001-team-chat.js",
+          "202611270001-user-deadline-permission.js",
         ];
         if (
           requiredMigrations.some(
@@ -154,6 +156,7 @@ app.use("/api/reports", reportRoutes);
 app.use("/api/settings", settingsRoutes);
 app.use("/api/meetings", meetingRoutes);
 app.use("/api/chat", chatRoutes);
+app.use("/api/ai", aiRoutes);
 
 // ─── 404 Handler ────────────────────────────────────────────────────────────
 

@@ -100,7 +100,7 @@ const getDirectory = async (req, res) => {
       return res.status(403).json({ success: false, message: "You do not have permission to view the team directory." });
     }
     const members = await User.findAll({
-      attributes: ["id", "name", "email", "department", "position", "employeeId", "isActive", "status", "reportsToId", "joinedAt", "lastActivityAt"],
+      attributes: ["id", "name", "email", "department", "position", "employeeId", "isActive", "canExtendDeadline", "status", "reportsToId", "joinedAt", "lastActivityAt"],
       include: [{
         model: User,
         as: "reportsTo",
@@ -398,6 +398,7 @@ const getMemberDetail = async (req, res) => {
         "reportsToId",
         "employeeId",
         "isActive",
+        "canExtendDeadline",
         "joinedAt",
         "lastActivityAt",
         "createdAt",
@@ -447,6 +448,9 @@ const updateMember = async (req, res) => {
       const reportReassignments = [];
 
       if (!isManager(req.user) && structureChanged) return { error: "MANAGER_REQUIRED" };
+      if (!isManager(req.user) && Object.hasOwn(changes, "canExtendDeadline")) {
+        return { error: "DEADLINE_PERMISSION_MANAGER_REQUIRED" };
+      }
       if (!isManager(req.user) && (
         department !== req.user.department ||
         POSITION_RANK[position] >= POSITION_RANK[req.user.position]
@@ -534,6 +538,9 @@ const updateMember = async (req, res) => {
       }
 
       if (changes.name !== undefined) member.name = changes.name;
+      if (Object.hasOwn(changes, "canExtendDeadline")) {
+        member.canExtendDeadline = Boolean(changes.canExtendDeadline);
+      }
       member.department = department;
       member.position = position;
       member.reportsToId = reportsToId ?? null;
@@ -563,6 +570,7 @@ const updateMember = async (req, res) => {
       NOT_FOUND: [404, "Team member not found."],
       FORBIDDEN: [403, "You cannot update this member."],
       MANAGER_REQUIRED: [403, "Only a Manager can change a member's department or position."],
+      DEADLINE_PERMISSION_MANAGER_REQUIRED: [403, "Only a Manager can grant or revoke deadline extension permission."],
       OUT_OF_SCOPE: [403, "The updated member must remain below you in your department."],
       LAST_MANAGER: [409, "The last active Manager cannot be demoted or deactivated."],
       REPORTS_NEED_MANAGER: [409, "Reassign this member's direct reports to eligible managers before changing their structure or active state."],
@@ -585,6 +593,7 @@ const updateMember = async (req, res) => {
         "reportsToId",
         "employeeId",
         "isActive",
+        "canExtendDeadline",
         "joinedAt",
         "lastActivityAt",
         "createdAt",

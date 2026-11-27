@@ -531,8 +531,18 @@ const updateTask = async (req, res) => {
         Number(task.assignedTo) === Number(req.user.id) ||
         Number(task.createdById) === Number(req.user.id)
       );
-      if (!canEditTask(req.user, task) && !mayEditOwnDescription) return { error: "FORBIDDEN" };
+      const deadlineKeysOnly = Object.keys(changes).every((key) => ["dueDate", "reason"].includes(key));
+      const mayExtendOwnDeadline = deadlineKeysOnly &&
+        Object.hasOwn(changes, "dueDate") &&
+        Boolean(req.user.canExtendDeadline) &&
+        Number(task.assignedTo) === Number(req.user.id);
+      if (!canEditTask(req.user, task) && !mayEditOwnDescription && !mayExtendOwnDeadline) {
+        return { error: "FORBIDDEN" };
+      }
       if ((Object.hasOwn(changes, "dueDate") || Object.hasOwn(changes, "startDate")) && !canManageDeadlines(req.user)) {
+        return { error: "DEADLINE_FORBIDDEN" };
+      }
+      if (Object.hasOwn(changes, "startDate") && !canEditTask(req.user, task)) {
         return { error: "DEADLINE_FORBIDDEN" };
       }
       if (Object.hasOwn(changes, "priority") && !canManagePriority(req.user)) {

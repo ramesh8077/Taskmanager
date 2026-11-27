@@ -17,6 +17,7 @@ interface Member {
   reportsToId: number | null;
   employeeId: string;
   isActive: boolean;
+  canExtendDeadline?: boolean;
   joinedAt: string;
   lastActivityAt: string | null;
   reportsTo?: { id: number; name: string; position: string; department: string; employeeId: string } | null;
@@ -108,6 +109,7 @@ function MemberDetails({ id }: { id: number }) {
   const [savingMember, setSavingMember] = useState(false);
   const [name, setName] = useState("");
   const [isActive, setIsActive] = useState(true);
+  const [canExtendDeadline, setCanExtendDeadline] = useState(false);
   const [department, setDepartment] = useState("");
   const [position, setPosition] = useState("");
   const [reportsToId, setReportsToId] = useState("");
@@ -167,6 +169,7 @@ function MemberDetails({ id }: { id: number }) {
       setMember(nextMember);
       setName(nextMember.name);
       setIsActive(nextMember.isActive);
+      setCanExtendDeadline(Boolean(nextMember.canExtendDeadline));
       setDepartment(nextMember.department);
       setPosition(nextMember.position);
       setReportsToId(nextMember.reportsToId ? String(nextMember.reportsToId) : "");
@@ -257,6 +260,7 @@ function MemberDetails({ id }: { id: number }) {
         ? {
           name,
           isActive,
+          canExtendDeadline,
           department,
           position,
           reportsToId: position === "MANAGER" ? null : Number(reportsToId),
@@ -409,6 +413,12 @@ function MemberDetails({ id }: { id: number }) {
               <input type="checkbox" checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />
               Account active
             </label>
+            {user?.position === "MANAGER" && position !== "MANAGER" && (
+              <label className="flex items-center gap-2 text-sm t-text-primary">
+                <input type="checkbox" checked={canExtendDeadline} onChange={(event) => setCanExtendDeadline(event.target.checked)} />
+                Allow deadline extension
+              </label>
+            )}
             <button type="submit" disabled={savingMember} className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
               {savingMember ? "Saving…" : "Save member"}
             </button>

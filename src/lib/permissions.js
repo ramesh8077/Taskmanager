@@ -46,7 +46,7 @@ function isManager(actor) {
 }
 
 function canManageDeadlines(actor) {
-  return ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(positionOf(actor));
+  return Boolean(actor?.canExtendDeadline) || ["MANAGER", "SUB_MANAGER", "TEAM_LEAD"].includes(positionOf(actor));
 }
 
 function canManagePriority(actor) {
@@ -82,7 +82,11 @@ function canEditTask(actor, task) {
 }
 
 function canEditDeadline(actor, task) {
-  return canEditTask(actor, task);
+  if (!actor || !task) return false;
+  if (canEditTask(actor, task)) return true;
+  if (!actor.canExtendDeadline) return false;
+  const assignedUserId = task.assignedToId ?? task.assignedTo ?? taskAssignee(task)?.id;
+  return assignedUserId != null && idOf(actor) === Number(assignedUserId);
 }
 
 function canUpdateProgress(actor, task) {

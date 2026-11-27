@@ -8,6 +8,7 @@ import { RoomEvent, Track } from "livekit-client";
 import API from "@/lib/axios";
 import ProtectedRoute from "@/components/ProtectedRoute";
 import { useAuth } from "@/context/AuthContext";
+import { formatMinutesMarkdown, splitParagraphs, type MeetingMinutes } from "@/lib/momFormat";
 import styles from "./Meetings.module.css";
 
 interface MeetingParticipant {
@@ -15,16 +16,6 @@ interface MeetingParticipant {
   userId: number;
   participantRole: "HOST" | "PARTICIPANT";
   user: { id: number; name: string; position: string; department: string };
-}
-
-interface MeetingMinutes {
-  summary: string;
-  discussionTopics: string[];
-  decisions: string[];
-  actionItems: Array<{ task: string; owner: string; dueDate: string; priority: "High" | "Medium" | "Low" | "Not specified" }>;
-  risksAndBlockers: string[];
-  openQuestions: string[];
-  nextMeeting: string;
 }
 
 interface Meeting {
@@ -588,22 +579,7 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
 
   async function copyMOM() {
     if (!meeting?.minutes) return;
-    const minutes = meeting.minutes;
-    const text = [
-      `# Minutes of Meeting: ${meeting.title}`,
-      `\n${minutes.summary}`,
-      "\n## Discussion topics",
-      ...minutes.discussionTopics.map((item) => `- ${item}`),
-      "\n## Decisions",
-      ...minutes.decisions.map((item) => `- ${item}`),
-      "\n## Action items",
-      ...minutes.actionItems.map((item) => `- ${item.task} — ${item.owner}; due ${item.dueDate}; priority ${item.priority}`),
-      "\n## Risks and blockers",
-      ...minutes.risksAndBlockers.map((item) => `- ${item}`),
-      "\n## Open questions",
-      ...minutes.openQuestions.map((item) => `- ${item}`),
-      minutes.nextMeeting ? `\nNext meeting: ${minutes.nextMeeting}` : "",
-    ].join("\n");
+    const text = formatMinutesMarkdown(meeting, meeting.minutes);
     try {
       await navigator.clipboard.writeText(text);
       toast.success("MOM copied.");
@@ -652,8 +628,8 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
                 onError={(callError) => setError(callError.message || "Call connect nahi ho paayi.")}
                 className={styles.liveKitRoom}
               >
-                <VideoConference />
                 {meeting && <MeetingCallTools meeting={meeting} onMeetingUpdated={setMeeting} onRecordingReady={setRecordedAudio} />}
+                <VideoConference />
                 <RoomAudioRenderer />
               </LiveKitRoom>
               <div className={styles.callFooter}>
@@ -689,13 +665,93 @@ export default function MeetingRoom({ meetingId }: { meetingId: string }) {
                       </div>
                       {meeting.minutes && (
                         <div className={styles.minutesResult}>
-                          <section><h4>Summary</h4><p>{meeting.minutes.summary}</p></section>
-                          {meeting.minutes.discussionTopics.length > 0 && <section><h4>Discussion topics</h4><ul>{meeting.minutes.discussionTopics.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>}
-                          {meeting.minutes.decisions.length > 0 && <section><h4>Decisions</h4><ul>{meeting.minutes.decisions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>}
-                          {meeting.minutes.actionItems.length > 0 && <section><h4>Action items</h4><div className={styles.minutesActions}>{meeting.minutes.actionItems.map((item, index) => <article key={`${index}-${item.task}`}><strong>{item.task}</strong><span>Owner: {item.owner}</span><span>Due: {item.dueDate}</span><span>Priority: {item.priority}</span></article>)}</div></section>}
-                          {meeting.minutes.risksAndBlockers.length > 0 && <section><h4>Risks and blockers</h4><ul>{meeting.minutes.risksAndBlockers.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>}
-                          {meeting.minutes.openQuestions.length > 0 && <section><h4>Open questions</h4><ul>{meeting.minutes.openQuestions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul></section>}
-                          {meeting.minutes.nextMeeting && <section><h4>Next meeting</h4><p>{meeting.minutes.nextMeeting}</p></section>}
+                          <div className={styles.minutesMetaHeader}>
+                            <div>
+                              <strong>{meeting.title}</strong>
+                              <small>{scheduledLabel} · Hosted by {meeting.host?.name || "Team member"}</small>
+                            </div>
+                            <span>{meeting.participants.length} participant{meeting.participants.length === 1 ? "" : "s"}</span>
+                          </div>
+                          <section className={styles.minutesSectionBlock}>
+                            <h4>Executive Summary</h4>
+                            <div className={styles.minutesParagraphs}>
+                              {splitParagraphs(meeting.minutes.summary).map((paragraph, index) => (
+                                <p key={`summary-${index}`}>{paragraph}</p>
+                              ))}
+                            </div>
+                          </section>
+                          {(meeting.minutes.detailedDiscussion?.length || 0) > 0 ? (
+                            <section className={styles.minutesSectionBlock}>
+                              <h4>Detailed Discussion</h4>
+                              <div className={styles.minutesTopicsList}>
+                                {meeting.minutes.detailedDiscussion!.map((topic, index) => (
+                                  <article key={`${index}-${topic.heading}`} className={styles.minutesTopicCard}>
+                                    <h5>{index + 1}. {topic.heading}</h5>
+                                    {splitParagraphs(topic.summary).map((paragraph, pIndex) => (
+                                      <p key={`topic-${index}-p-${pIndex}`}>{paragraph}</p>
+                                    ))}
+                                    {topic.keyPoints?.length > 0 && (
+                                      <ul>
+                                        {topic.keyPoints.map((point, kIndex) => (
+                                          <li key={`topic-${index}-k-${kIndex}`}>{point}</li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </article>
+                                ))}
+                              </div>
+                            </section>
+                          ) : meeting.minutes.discussionTopics.length > 0 ? (
+                            <section className={styles.minutesSectionBlock}>
+                              <h4>Discussion Topics</h4>
+                              <ul>{meeting.minutes.discussionTopics.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
+                            </section>
+                          ) : null}
+                          {meeting.minutes.decisions.length > 0 && (
+                            <section className={styles.minutesSectionBlock}>
+                              <h4>Decisions</h4>
+                              <ul>{meeting.minutes.decisions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
+                            </section>
+                          )}
+                          {meeting.minutes.actionItems.length > 0 && (
+                            <section className={styles.minutesSectionBlock}>
+                              <h4>Action Items</h4>
+                              <div className={styles.minutesActions}>
+                                {meeting.minutes.actionItems.map((item, index) => (
+                                  <article key={`${index}-${item.task}`}>
+                                    <strong>{item.task}</strong>
+                                    <span>Owner: {item.owner}</span>
+                                    <span>Due: {item.dueDate}</span>
+                                    <span>Priority: {item.priority}</span>
+                                  </article>
+                                ))}
+                              </div>
+                            </section>
+                          )}
+                          {meeting.minutes.risksAndBlockers.length > 0 && (
+                            <section className={styles.minutesSectionBlock}>
+                              <h4>Risks &amp; Blockers</h4>
+                              <ul>{meeting.minutes.risksAndBlockers.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
+                            </section>
+                          )}
+                          {meeting.minutes.openQuestions.length > 0 && (
+                            <section className={styles.minutesSectionBlock}>
+                              <h4>Open Questions</h4>
+                              <ul>{meeting.minutes.openQuestions.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
+                            </section>
+                          )}
+                          {(meeting.minutes.keyTakeaways?.length || 0) > 0 && (
+                            <section className={styles.minutesSectionBlock}>
+                              <h4>Key Takeaways</h4>
+                              <ul>{meeting.minutes.keyTakeaways!.map((item, index) => <li key={`${index}-${item}`}>{item}</li>)}</ul>
+                            </section>
+                          )}
+                          {meeting.minutes.nextMeeting && (
+                            <section className={styles.minutesSectionBlock}>
+                              <h4>Next Meeting</h4>
+                              <p>{meeting.minutes.nextMeeting}</p>
+                            </section>
+                          )}
                         </div>
                       )}
                       {isHost ? (

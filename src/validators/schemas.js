@@ -135,6 +135,7 @@ const memberUpdateBody = z.object({
   position: z.enum(POSITIONS).optional(),
   reportsToId: positiveId.nullable().optional(),
   isActive: z.boolean().optional(),
+  canExtendDeadline: z.boolean().optional(),
 }).strict().refine(
   (body) => Object.keys(body).length > 0,
   { message: "Provide at least one member field to update." }
@@ -366,6 +367,21 @@ const meetingMinutesBody = z
   .object({ transcript: z.string().trim().max(150000).optional() })
   .strict();
 
+const aiAssistantBody = z
+  .object({
+    message: shortText(1, 4000),
+    history: z
+      .array(
+        z.object({
+          role: z.enum(["user", "assistant"]),
+          text: z.string().trim().min(1).max(4000),
+        }).strict(),
+      )
+      .max(20)
+      .default([]),
+  })
+  .strict();
+
 module.exports = {
   loginBody,
   registerBody,
@@ -406,4 +422,5 @@ module.exports = {
   createMeetingBody,
   inviteMeetingParticipantsBody,
   meetingMinutesBody,
+  aiAssistantBody,
 };

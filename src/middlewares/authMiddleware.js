@@ -61,6 +61,7 @@ const verifyToken = async (req, res, next) => {
         "reportsToId",
         "employeeId",
         "isActive",
+        "canExtendDeadline",
         "joinedAt",
         "lastActivityAt",
       ],

@@ -43,6 +43,7 @@ interface User {
   position: "MANAGER" | "SUB_MANAGER" | "TEAM_LEAD" | "EMPLOYEE" | "INTERN";
   reportsToId: number | null;
   employeeId: string;
+  canExtendDeadline?: boolean;
   permissions: string[];
   createdAt?: string;
 }

@@ -3,6 +3,7 @@
 import { useState, type ReactNode } from "react";
 import Sidebar from "@/components/Sidebar";
 import NotificationCenter from "@/components/NotificationCenter";
+import AiAssistantWidget from "@/components/AiAssistantWidget";
 import { useTheme } from "@/context/ThemeContext";
 import { useRouter } from "next/navigation";
 
@@ -52,6 +53,7 @@ export default function DashboardShell({ children }: { children: ReactNode }) {
           </button>
         </header>
         <main className="dashboard-main">{children}</main>
+        <AiAssistantWidget />
       </div>
     </div>
   );

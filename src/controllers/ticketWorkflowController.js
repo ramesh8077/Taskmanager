@@ -597,7 +597,9 @@ async function updateDeadline(req, res) {
     const { deadline, startDate, reason } = req.body;
     const ticket = await getScopedTicket(req, id);
     if (!ticket) return res.status(404).json({ success: false, message: "Ticket not found." });
-    if (!canManageDeadlines(req.user) || !canManageTicket(req.user, ticket)) {
+    const mayExtendOwnDeadline = Boolean(req.user.canExtendDeadline) &&
+      Number(ticket.assignedTo) === Number(req.user.id);
+    if (!canManageDeadlines(req.user) || (!canManageTicket(req.user, ticket) && !mayExtendOwnDeadline)) {
       return res.status(403).json({ success: false, message: "You cannot change this ticket's deadline." });
     }
     const oldValue = ticket.deadline;

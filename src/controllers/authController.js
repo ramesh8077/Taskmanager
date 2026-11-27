@@ -296,6 +296,7 @@ const login = async (req, res) => {
       reportsToId: user.reportsToId,
       employeeId: user.employeeId,
       isActive: user.isActive,
+      canExtendDeadline: Boolean(user.canExtendDeadline),
       joinedAt: user.joinedAt,
       lastActivityAt: user.lastActivityAt,
       permissions: permissionsForPosition(
@@ -371,6 +372,7 @@ const getMe = async (req, res) => {
         "reportsToId",
         "employeeId",
         "isActive",
+        "canExtendDeadline",
         "joinedAt",
         "lastActivityAt",
         "createdAt",

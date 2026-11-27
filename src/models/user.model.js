@@ -90,6 +90,11 @@ module.exports = (sequelize) => {
         allowNull: false,
         defaultValue: true,
       },
+      canExtendDeadline: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: false,
+      },
       joinedAt: {
         type: DataTypes.DATE,
         allowNull: false,
